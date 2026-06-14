@@ -138,9 +138,25 @@ A safety layer is applied at two checkpoints:
 
 ---
 
+## Real-Time Streaming
+
+- LLM responses are streamed token-by-token to the frontend using **Server-Sent Events (SSE)**.
+- The React UI renders tokens as they arrive, giving immediate feedback without waiting for the full response.
+- Tool call steps and intermediate reasoning are also streamed as structured events so the user can see the agent's progress in real time.
+- Streaming is scoped per `thread_id` and authenticated session to prevent cross-user leakage.
+
+---
+
+## Multi-Modal Inputs
+
+- Users can upload **images** alongside text queries; the agent uses vision capabilities of `gpt-5.4-nano` to reason over image content.
+- **Audio** inputs are transcribed to text via OpenAI Whisper before being passed to the agent.
+- Multi-modal messages are stored as part of the thread history in PostgreSQL with references to the original media (stored in object storage or local volume).
+- RAG and guardrails apply equally to content extracted from images and audio transcripts.
+
+---
+
 ## Out of Scope (for now)
 
 - Fine-tuning or custom model training.
-- Real-time streaming responses.
 - Mobile app.
-- Multi-modal inputs (image/audio).
