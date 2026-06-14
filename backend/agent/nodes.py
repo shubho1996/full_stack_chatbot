@@ -63,10 +63,14 @@ async def planner_node(state: AgentState) -> dict:
     structured_llm = _planner_llm().with_structured_output(_PlannerOutput)
     result: _PlannerOutput = await structured_llm.ainvoke([
         SystemMessage(content=(
-            "Classify the complexity of the user query.\n"
-            "complexity: 'low' for simple/factual, 'medium' for multi-step reasoning, "
-            "'high' for research or highly complex tasks.\n"
-            "max_retries: 1 for low, 2 for medium, 3 for high."
+            "You are a task planner. Count the minimum number of tool calls required to fully answer the query, "
+            "then map that count to a complexity tier:\n"
+            "  0-1 tool calls → complexity='low',    max_retries=1\n"
+            "  2   tool calls → complexity='medium',  max_retries=2\n"
+            "  3+  tool calls → complexity='high',    max_retries=3\n\n"
+            "Important: if the query says 'then', 'after that', 'also', or lists multiple actions, "
+            "count each action as a separate tool call.\n"
+            "Example: 'write a file then read it back' = 2 tool calls → medium."
         )),
         {"role": "user", "content": query},
     ])

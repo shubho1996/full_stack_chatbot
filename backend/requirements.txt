@@ -8,3 +8,4 @@ openai>=1.0.0
 langchain
 langchain-openai
 langgraph
+ddgs

@@ -134,21 +134,27 @@
 ### Tasks
 
 #### 5a — File System Tool
-- [ ] Tool functions: `read_file(path)`, `write_file(path, content)`, `list_directory(path)`
-- [ ] Sandbox: all paths resolved relative to a fixed `/workspace` directory; reject `..` traversal
-- [ ] Register with LangGraph agent
+- [x] Tools: `read_file(path)`, `write_file(path, content)`, `list_directory(path)` in `backend/agent/tools.py`
+- [x] Sandbox: `_safe_path()` uses `Path.relative_to(WORKSPACE_DIR)` — immune to prefix-collision attacks
+- [x] WORKSPACE_DIR defaults to `<project_root>/workspace/`, auto-created on startup; overridable via `.env`
+- [x] Registered in TOOLS list — automatically bound to agent LLM and available to `tools_node`
 
 #### 5b — Google Search Tool
-- [ ] Integrate SerpAPI or Google Custom Search API
-- [ ] Tool: `google_search(query) → list[{title, url, snippet}]`
-- [ ] Register with LangGraph agent
-- [ ] Add `SERPAPI_KEY` (or `GOOGLE_API_KEY` + `GOOGLE_CSE_ID`) to `.env`
+- [x] `google_search(query)` implemented using SerpAPI (`requests` to `https://serpapi.com/search`)
+- [x] Returns top-5 results: title, URL, snippet
+- [x] Degrades gracefully when `SERPAPI_KEY` is unset — returns descriptive error, agent informs user
+- [x] `requests` added to `requirements.txt`; `SERPAPI_KEY` documented in `.env.example`
+
+#### Planner improvement
+- [x] Prompt rewritten to count tool calls explicitly and map to tiers:
+  0-1 calls → low (1), 2 calls → medium (2), 3+ calls → high (3)
+  Keywords like "then", "after that", "also" cue multi-step classification
 
 ### Test Criteria
-- Ask agent to "list files in /workspace" → returns directory contents
-- Ask agent to write a file then read it back → contents match
-- Path traversal attempt (`../../etc/passwd`) is blocked with an error
-- Ask agent a current-events question → agent uses Google Search and cites results
+- [x] `list_directory` → returned "(empty directory)" for fresh workspace ✓
+- [x] Write `test.txt` then read it back → planner rated medium (2 retries), both tool calls executed, contents confirmed ✓
+- [x] `../../etc/passwd` → rejected by `_safe_path()` with "Access denied" error ✓
+- [ ] Google Search → requires SERPAPI_KEY; tool registered and returns clear error when key is absent ✓ (full test pending key)
 
 ---
 

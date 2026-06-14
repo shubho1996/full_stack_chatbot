@@ -161,6 +161,20 @@ After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
   - Input and Send button locked during streaming
   - Full conversation context sent to the LLM on every turn
 
+### Stage 5 — Built-In Tools (File System + Google Search) ✅
+All tools live in `backend/agent/tools.py` and are auto-bound to the agent at startup.
+
+**File System tools** — sandboxed to `<project_root>/workspace/` (auto-created):
+- `read_file(path)` — reads a file; returns content or a clear error
+- `write_file(path, content)` — writes a file; creates parent dirs automatically
+- `list_directory(path)` — lists entries as `FILE name` / `DIR name` rows
+- Sandbox uses `Path.relative_to()` for traversal detection — `../../etc/passwd` is blocked before any I/O
+
+**Google Search tool** — calls SerpAPI, returns top-5 results (title + URL + snippet):
+- Set `SERPAPI_KEY` in `.env` to enable; tool degrades gracefully with a descriptive error if unset
+
+**Planner improvement** — prompt rewritten to explicitly count tool calls and map to tiers (0-1 → low, 2 → medium, 3+ → high) so multi-step tasks get sufficient retry budget.
+
 ### Stage 4 — ReAct Agent with LangGraph ✅
 All LangGraph code lives in `backend/agent/` — isolated from FastAPI routers so it can be read and extended independently.
 
@@ -222,8 +236,8 @@ curl -X POST http://localhost:8000/threads/<thread_id>/messages \
 | 2 | Chat thread management (PostgreSQL + UI) | ✅ Done |
 | 3 | LLM integration & real-time SSE streaming | ✅ Done |
 | 4 | ReAct agent with LangGraph | ✅ Done |
-| 5 | Built-in tools (File System + Google Search) | 🔜 Next |
-| 6 | Custom MCP server (Calculator) | — |
+| 5 | Built-in tools (File System + Google Search) | ✅ Done |
+| 6 | Custom MCP server (Calculator) | 🔜 Next |
 | 7 | Dynamic MCP server registration | — |
 | 8 | Document ingestion & RAG | — |
 | 9 | Memory (short-term & long-term) | — |
