@@ -109,34 +109,23 @@ def chat(thread_id: UUID, body: MessageCreate, db: Session = Depends(get_db)):
 
         try:
             async for event in graph.astream_events(
-                {"messages": lc_messages},
+                {"messages": lc_messages, "max_retries": 5, "retry_count": 0, "call_log": []},
                 version="v2",
             ):
                 kind = event["event"]
                 node = event.get("metadata", {}).get("langgraph_node", "")
 
-                # Planner finished — broadcast complexity + retry budget
-                if kind == "on_chain_end" and node == "planner":
-                    output = event.get("data", {}).get("output", {})
-                    if "complexity" in output:
-                        yield f"data: {json.dumps({'step': 'planner', 'complexity': output['complexity'], 'max_retries': output['max_retries']})}\n\n"
-
                 # Agent LLM streaming tokens (tool-call chunks have empty
                 # content and are filtered out by the `if chunk.content` guard)
-                elif kind == "on_chat_model_stream" and node == "agent":
+                if kind == "on_chat_model_stream" and node == "agent":
                     chunk = event["data"]["chunk"]
                     if chunk.content:
                         full_response += chunk.content
                         yield f"data: {json.dumps({'token': chunk.content})}\n\n"
 
-                # Tool about to execute
+                # Tool about to execute — just send the tool name
                 elif kind == "on_tool_start":
-                    yield f"data: {json.dumps({'step': 'tool_call', 'tool': event.get('name', ''), 'input': event['data'].get('input', {})})}\n\n"
-
-                # Tool finished
-                elif kind == "on_tool_end":
-                    output = str(event["data"].get("output", ""))[:300]
-                    yield f"data: {json.dumps({'step': 'tool_result', 'tool': event.get('name', ''), 'output': output})}\n\n"
+                    yield f"data: {json.dumps({'step': 'tool_call', 'tool': event.get('name', '')})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

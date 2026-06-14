@@ -7,10 +7,7 @@ messages      Full conversation history. The add_messages reducer appends
               new messages rather than overwriting, so each node just returns
               the new messages it wants to add.
 
-complexity    Set by the planner node: "low" | "medium" | "high".
-              Drives how many tool-retry attempts the agent is allowed.
-
-max_retries   Set by the planner node: 1 (low), 2 (medium), 3 (high).
+max_retries   Maximum number of tool-execution rounds per turn (default 5).
               The agent-tools loop runs at most this many times.
 
 retry_count   Incremented by the tools node on every tool-execution round.
@@ -33,7 +30,6 @@ from typing_extensions import TypedDict
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    complexity: str
     max_retries: int
     retry_count: int
     call_log: list[dict]

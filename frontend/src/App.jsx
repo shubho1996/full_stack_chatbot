@@ -2,7 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-const SIDEBAR_W = 260
+const SIDEBAR_W = 240
+
+const TOOL_LABELS = {
+  duckduckgo_search: 'Web Search',
+  read_file: 'Read File',
+  write_file: 'Write File',
+  list_directory: 'List Directory',
+  add: 'Calculator',
+  subtract: 'Calculator',
+  multiply: 'Calculator',
+  divide: 'Calculator',
+  evaluate: 'Calculator',
+}
+
+function toolLabel(name) {
+  return TOOL_LABELS[name] || name
+}
 
 const styles = {
   root: {
@@ -24,21 +40,21 @@ const styles = {
   },
   sidebarTitle: {
     margin: '0 0 8px 4px',
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: 600,
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
     color: '#6c7086',
   },
   newChatBtn: {
-    padding: '10px 12px',
+    padding: '9px 12px',
     background: '#89b4fa',
     color: '#1e1e2e',
     border: 'none',
     borderRadius: '8px',
     cursor: 'pointer',
     fontWeight: 700,
-    fontSize: '14px',
+    fontSize: '13px',
     textAlign: 'left',
   },
   threadList: {
@@ -54,6 +70,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minWidth: 0,
+    overflow: 'hidden',
   },
   placeholder: {
     flex: 1,
@@ -63,17 +80,27 @@ const styles = {
     color: '#6c7086',
     fontSize: '15px',
   },
-  messages: {
+  // Scrollable outer container
+  messagesOuter: {
     flex: 1,
     overflowY: 'auto',
-    padding: '24px 32px',
+    padding: '24px 16px',
+  },
+  // Centered inner column — messages never stretch past 720px
+  messagesInner: {
+    maxWidth: '720px',
+    margin: '0 auto',
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
   },
-  inputRow: {
-    padding: '12px 24px 16px',
+  inputOuter: {
     borderTop: '1px solid #313244',
+    padding: '12px 16px 16px',
+  },
+  inputInner: {
+    maxWidth: '720px',
+    margin: '0 auto',
     display: 'flex',
     gap: '8px',
     alignItems: 'flex-end',
@@ -127,10 +154,20 @@ function ThreadItem({ thread, active, onClick }) {
 
 function ThinkingSection({ steps, streaming }) {
   const [open, setOpen] = useState(true)
-  if (!steps || steps.length === 0) return null
+
+  // Deduplicate consecutive identical tool calls so the same tool
+  // called twice doesn't show two identical pills
+  const pills = []
+  for (const s of (steps || [])) {
+    if (s.step !== 'tool_call') continue
+    const last = pills[pills.length - 1]
+    if (!last || last !== s.tool) pills.push(s.tool)
+  }
+
+  if (pills.length === 0 && !streaming) return null
 
   return (
-    <div style={{ marginBottom: '8px' }}>
+    <div style={{ marginBottom: '10px' }}>
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
@@ -139,59 +176,40 @@ function ThinkingSection({ steps, streaming }) {
           color: '#6c7086',
           fontSize: '12px',
           cursor: 'pointer',
-          padding: '2px 0',
+          padding: '0',
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
         }}
       >
         <span>{open ? '▾' : '▸'}</span>
-        <span>
-          {streaming ? 'Thinking…' : `Reasoning (${steps.length} step${steps.length > 1 ? 's' : ''})`}
-        </span>
+        <span>{streaming ? 'Working…' : `Used ${pills.length} tool${pills.length !== 1 ? 's' : ''}`}</span>
       </button>
 
       {open && (
-        <div
-          style={{
-            marginTop: '6px',
-            padding: '8px 12px',
-            background: '#181825',
-            borderLeft: '2px solid #45475a',
-            borderRadius: '4px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-          }}
-        >
-          {steps.map((step, i) => {
-            if (step.step === 'planner') {
-              return (
-                <div key={i} style={{ fontSize: '12px', color: '#a6adc8' }}>
-                  <span style={{ color: '#89dceb' }}>Planner</span>
-                  {' → '}complexity: <strong>{step.complexity}</strong>
-                  {', max retries: '}<strong>{step.max_retries}</strong>
-                </div>
-              )
-            }
-            if (step.step === 'tool_call') {
-              return (
-                <div key={i} style={{ fontSize: '12px', color: '#a6adc8' }}>
-                  <span style={{ color: '#a6e3a1' }}>▶ {step.tool}</span>
-                  {' '}
-                  <span style={{ color: '#6c7086' }}>{JSON.stringify(step.input)}</span>
-                </div>
-              )
-            }
-            if (step.step === 'tool_result') {
-              return (
-                <div key={i} style={{ fontSize: '12px', color: '#6c7086', paddingLeft: '12px' }}>
-                  ← {step.output}
-                </div>
-              )
-            }
-            return null
-          })}
+        <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {pills.map((tool, i) => (
+            <span
+              key={i}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '3px 8px',
+                borderRadius: '12px',
+                background: '#1e1e2e',
+                border: '1px solid #45475a',
+                fontSize: '11px',
+                color: '#a6e3a1',
+              }}
+            >
+              <span>⚙</span>
+              {toolLabel(tool)}
+            </span>
+          ))}
+          {streaming && (
+            <span style={{ fontSize: '11px', color: '#6c7086', alignSelf: 'center' }}>…</span>
+          )}
         </div>
       )}
     </div>
@@ -205,7 +223,8 @@ function MessageBubble({ message }) {
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
       <div
         style={{
-          maxWidth: '70%',
+          maxWidth: isUser ? '75%' : '100%',
+          width: isUser ? undefined : '100%',
           padding: '10px 16px',
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
           background: isUser ? '#89b4fa' : '#313244',
@@ -215,6 +234,7 @@ function MessageBubble({ message }) {
           wordBreak: 'break-word',
           minWidth: isEmpty ? '40px' : undefined,
           minHeight: isEmpty ? '20px' : undefined,
+          boxSizing: 'border-box',
         }}
       >
         {isUser ? (
@@ -239,7 +259,7 @@ function MessageBubble({ message }) {
 function parseSSEChunk(buffer) {
   const events = []
   const parts = buffer.split('\n\n')
-  const remaining = parts.pop() // incomplete trailing chunk
+  const remaining = parts.pop()
   for (const part of parts) {
     if (!part.startsWith('data: ')) continue
     try {
@@ -298,7 +318,6 @@ export default function App() {
     const tempUserId = `temp-user-${Date.now()}`
     const streamingId = `streaming-${Date.now()}`
 
-    // Optimistic: user bubble + empty streaming assistant bubble
     setMessages((prev) => [
       ...prev,
       { id: tempUserId, role: 'user', content, created_at: new Date().toISOString() },
@@ -312,9 +331,7 @@ export default function App() {
         body: JSON.stringify({ content }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Server error ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`Server error ${response.status}`)
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -334,7 +351,7 @@ export default function App() {
             setMessages((prev) =>
               prev.map((m) => (m.id === tempUserId ? { ...m, id: data.user_message_id } : m))
             )
-          } else if (data.step && data.step !== 'planner') {
+          } else if (data.step === 'tool_call') {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === streamingId ? { ...m, steps: [...(m.steps || []), data] } : m
@@ -352,7 +369,6 @@ export default function App() {
                 m.id === streamingId ? { ...m, id: data.message_id, streaming: false } : m
               )
             )
-            // Update sidebar title + ordering
             const newTitle = isFirstMessage ? content.slice(0, 50) : null
             setThreads((prev) => {
               const updated = prev.map((t) =>
@@ -360,7 +376,6 @@ export default function App() {
                   ? { ...t, ...(newTitle ? { title: newTitle } : {}) }
                   : t
               )
-              // Bubble to top
               const idx = updated.findIndex((t) => t.id === activeThread.id)
               if (idx > 0) {
                 const [moved] = updated.splice(idx, 1)
@@ -368,9 +383,7 @@ export default function App() {
               }
               return updated
             })
-            if (newTitle) {
-              setActiveThread((t) => ({ ...t, title: newTitle }))
-            }
+            if (newTitle) setActiveThread((t) => ({ ...t, title: newTitle }))
           } else if (data.error) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -428,33 +441,38 @@ export default function App() {
           <div style={styles.placeholder}>Select a chat or start a new one</div>
         ) : (
           <>
-            <div style={styles.messages}>
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
-              <div ref={messagesEndRef} />
+            <div style={styles.messagesOuter}>
+              <div style={styles.messagesInner}>
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
-            <div style={styles.inputRow}>
-              <textarea
-                style={styles.textarea}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message… (Enter to send, Shift+Enter for newline)"
-                rows={2}
-                disabled={streaming}
-              />
-              <button
-                style={{
-                  ...styles.sendBtn,
-                  opacity: !input.trim() || streaming ? 0.45 : 1,
-                  cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
-                }}
-                onClick={sendMessage}
-                disabled={!input.trim() || streaming}
-              >
-                Send
-              </button>
+
+            <div style={styles.inputOuter}>
+              <div style={styles.inputInner}>
+                <textarea
+                  style={styles.textarea}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Message… (Enter to send, Shift+Enter for newline)"
+                  rows={2}
+                  disabled={streaming}
+                />
+                <button
+                  style={{
+                    ...styles.sendBtn,
+                    opacity: !input.trim() || streaming ? 0.45 : 1,
+                    cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
+                  }}
+                  onClick={sendMessage}
+                  disabled={!input.trim() || streaming}
+                >
+                  Send
+                </button>
+              </div>
             </div>
           </>
         )}

@@ -1,9 +1,8 @@
 """
 Node implementations for the ReAct agent graph.
 
-planner_node  — Assesses query complexity and sets the retry budget.
-agent_node    — Core reasoning loop: generates text or tool calls.
-tools_node    — Executes tool calls with call-log deduplication.
+agent_node  — Core reasoning loop: generates text or tool calls.
+tools_node  — Executes tool calls with call-log deduplication.
 
 Each node receives the full AgentState and returns a *partial* state
 dict — only the keys it wants to update.  LangGraph merges these
@@ -15,7 +14,6 @@ from functools import lru_cache
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
 from .mcp_client import get_mcp_tools
 from .state import AgentState
@@ -27,14 +25,9 @@ MODEL = "gpt-5.4-nano"
 SYSTEM_PROMPT = "You are a helpful assistant."
 
 
-# Lazy singletons so OPENAI_API_KEY is read at first call (after dotenv loads),
-# not at import time.  MCP tools are available by first call because the
-# FastAPI lifespan starts them before the first request.
-
-@lru_cache(maxsize=1)
-def _planner_llm() -> ChatOpenAI:
-    return ChatOpenAI(model=MODEL, temperature=0)
-
+# Lazy singleton — OPENAI_API_KEY is read at first call (after dotenv loads).
+# MCP tools are available by first call because the FastAPI lifespan starts
+# them before the first request arrives.
 
 @lru_cache(maxsize=1)
 def _agent_llm():
@@ -44,50 +37,8 @@ def _agent_llm():
 
 
 def _all_tools() -> list:
-    """Return the full tool list (static + MCP) for tool lookup at runtime."""
+    """Return the full tool list (static + MCP) for runtime lookup."""
     return TOOLS + get_mcp_tools()
-
-
-# ── Planner ──────────────────────────────────────────────────────────────────
-
-class _PlannerOutput(BaseModel):
-    """Structured output schema for the planner LLM call."""
-    complexity: str   # "low" | "medium" | "high"
-    max_retries: int  # 1 | 2 | 3
-
-
-async def planner_node(state: AgentState) -> dict:
-    """
-    Reads the latest human message and classifies it.
-    Returns complexity + max_retries that control the agent-tools loop.
-    Also resets retry_count and call_log for the new turn.
-    """
-    last_human = next(
-        (m for m in reversed(state["messages"]) if m.type == "human"), None
-    )
-    query = last_human.content if last_human else ""
-
-    structured_llm = _planner_llm().with_structured_output(_PlannerOutput)
-    result: _PlannerOutput = await structured_llm.ainvoke([
-        SystemMessage(content=(
-            "You are a task planner. Count the minimum number of tool calls required to fully answer the query, "
-            "then map that count to a complexity tier:\n"
-            "  0-1 tool calls → complexity='low',    max_retries=1\n"
-            "  2   tool calls → complexity='medium',  max_retries=2\n"
-            "  3+  tool calls → complexity='high',    max_retries=3\n\n"
-            "Important: if the query says 'then', 'after that', 'also', or lists multiple actions, "
-            "count each action as a separate tool call.\n"
-            "Example: 'write a file then read it back' = 2 tool calls → medium."
-        )),
-        {"role": "user", "content": query},
-    ])
-
-    return {
-        "complexity": result.complexity,
-        "max_retries": result.max_retries,
-        "retry_count": 0,
-        "call_log": [],
-    }
 
 
 # ── Agent ────────────────────────────────────────────────────────────────────
@@ -137,7 +88,6 @@ async def tools_node(state: AgentState) -> dict:
         tool_name = tc["name"]
         params_key = json.dumps(tc["args"], sort_keys=True)
 
-        # Look up existing call_log entry for this (tool, params) pair
         entry = next(
             (e for e in call_log
              if e["tool"] == tool_name and e["params"] == params_key),
@@ -145,7 +95,6 @@ async def tools_node(state: AgentState) -> dict:
         )
 
         if entry and entry["count"] >= 2:
-            # Deduplication: skip this call
             results.append(ToolMessage(
                 tool_call_id=tc["id"],
                 content=(
@@ -156,12 +105,10 @@ async def tools_node(state: AgentState) -> dict:
             ))
             continue
 
-        # Execute the tool
         tool = tool_map.get(tool_name)
         output = await tool.ainvoke(tc["args"]) if tool else f"Tool '{tool_name}' not found."
         results.append(ToolMessage(tool_call_id=tc["id"], content=str(output)))
 
-        # Update call_log
         if entry:
             entry["count"] += 1
         else:
