@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/health': 'http://localhost:8000',
+      '/threads': 'http://localhost:8000',
     },
   },
 })

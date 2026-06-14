@@ -9,7 +9,7 @@
 **Goal:** Get the project skeleton running with both services talking to each other.
 
 ### Tasks
-- [ ] Create project structure:
+- [x] Create project structure:
   ```
   /
   ├── backend/
@@ -24,15 +24,15 @@
   ├── docker-compose.yml
   └── .env.example
   ```
-- [ ] Backend: FastAPI app with `GET /health → { status: "ok" }`
-- [ ] Frontend: Vite + React, calls `/health` on load, displays result
-- [ ] PostgreSQL via Docker Compose (single container, persistent volume)
-- [ ] `.env` with `DATABASE_URL`, `OPENAI_API_KEY`
+- [x] Backend: FastAPI app with `GET /health → { status: "ok" }`
+- [x] Frontend: Vite + React, calls `/health` on load, displays result
+- [x] PostgreSQL via Docker Compose (single container, persistent volume)
+- [x] `.env` with `DATABASE_URL`, `OPENAI_API_KEY`
 
 ### Test Criteria
-- `docker-compose up` starts PostgreSQL
-- `uvicorn main:app --reload` starts backend; `GET /health` returns 200
-- Frontend loads in browser and shows a successful ping
+- [x] `docker-compose up` starts PostgreSQL
+- [x] `uvicorn main:app --reload` starts backend; `GET /health` returns 200
+- [x] Frontend loads in browser and shows a successful ping
 
 ---
 
@@ -41,23 +41,24 @@
 **Goal:** Persist conversations in PostgreSQL with new-chat and resume-chat working end-to-end.
 
 ### Tasks
-- [ ] PostgreSQL schema:
+- [x] PostgreSQL schema:
   - `threads (id UUID PK, title TEXT, created_at, updated_at)`
   - `messages (id UUID PK, thread_id UUID FK, role TEXT, content TEXT, media_refs JSONB, created_at)`
-- [ ] Run migrations with Alembic (or plain SQL scripts for now)
-- [ ] `POST /threads` — create a new thread, return `thread_id`
-- [ ] `GET /threads` — list all threads (single user, no filtering)
-- [ ] `GET /threads/:id/messages` — full message history for a thread
-- [ ] `POST /threads/:id/messages` — save user message, echo a placeholder assistant reply
-- [ ] Frontend:
+- [x] Tables created via `Base.metadata.create_all()` on backend startup (plain SQL approach)
+- [x] `POST /threads` — create a new thread, return `thread_id`; auto-titles from first message
+- [x] `GET /threads` — list all threads ordered by `updated_at` desc
+- [x] `GET /threads/:id/messages` — full message history for a thread (404 on unknown ID)
+- [x] `POST /threads/:id/messages` — save user message, echo placeholder assistant reply, update thread timestamp
+- [x] Frontend:
   - Sidebar: list threads + "New Chat" button
-  - Main panel: message history + input box
+  - Main panel: message history + input box (Enter to send, Shift+Enter for newline)
   - Clicking a thread in sidebar loads its history (resume chat)
+  - Optimistic UI — user message appears instantly; typing indicator while waiting
 
 ### Test Criteria
-- Create a new thread, send a few messages, refresh — history persists
-- Resume a thread from the sidebar — history loads correctly
-- Placeholder echo reply is saved and displayed
+- [x] Create a new thread, send a few messages, refresh — history persists
+- [x] Resume a thread from the sidebar — history loads correctly
+- [x] Placeholder echo reply is saved and displayed
 
 ---
 
