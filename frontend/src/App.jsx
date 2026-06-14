@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const SIDEBAR_W = 260
 
@@ -137,14 +139,22 @@ function MessageBubble({ message }) {
           color: isUser ? '#1e1e2e' : '#cdd6f4',
           fontSize: '14px',
           lineHeight: '1.6',
-          whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           minWidth: isEmpty ? '40px' : undefined,
           minHeight: isEmpty ? '20px' : undefined,
         }}
       >
-        {message.content}
-        {message.streaming && <span className="cursor">▌</span>}
+        {isUser ? (
+          <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
+        ) : (
+          <div className="markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content}
+            </ReactMarkdown>
+            {message.streaming && <span className="cursor">▌</span>}
+          </div>
+        )}
+        {isUser && message.streaming && <span className="cursor">▌</span>}
       </div>
     </div>
   )
