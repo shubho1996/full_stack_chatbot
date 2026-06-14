@@ -17,12 +17,17 @@ from langchain_openai import ChatOpenAI
 
 from .mcp_client import get_mcp_tools
 from .state import AgentState
-from .tools import TOOLS
+from .tools import TOOLS, WORKSPACE_DIR
 
 # ── Model ────────────────────────────────────────────────────────────────────
 
 MODEL = "gpt-5.4-nano"
-SYSTEM_PROMPT = "You are a helpful assistant."
+SYSTEM_PROMPT = (
+    "You are a helpful assistant.\n\n"
+    f"Your file-system tools operate inside a sandboxed workspace at: {WORKSPACE_DIR}\n"
+    "All file paths you pass to read_file, write_file, and list_directory are "
+    "relative to that directory. You cannot access files outside it."
+)
 
 
 # Lazy singleton — OPENAI_API_KEY is read at first call (after dotenv loads).
