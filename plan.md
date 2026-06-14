@@ -84,12 +84,12 @@ Each stage is independently testable. Complete and verify a stage before moving 
 
 ## Stage 4 — LLM Integration & Real-Time Streaming
 
-**Goal:** Replace the echo backend with `gpt-5.4-nano` responses streamed token-by-token to the UI.
+**Goal:** Replace the echo backend with `gpt-5.4-mini` responses streamed token-by-token to the UI.
 
 ### Tasks
 - [ ] Install OpenAI Python SDK
 - [ ] `POST /threads/:id/chat` — streaming endpoint using **Server-Sent Events (SSE)**
-  - Calls `gpt-5.4-nano` with the thread's message history as context
+  - Calls `gpt-5.4-mini` with the thread's message history as context
   - Streams each token as an SSE event: `data: {"token": "..."}`
   - On completion, persists the full assistant message to PostgreSQL
 - [ ] Frontend: consume SSE stream and append tokens to the message bubble in real time
@@ -111,26 +111,24 @@ Each stage is independently testable. Complete and verify a stage before moving 
 ### Tasks
 - [ ] Install `langchain`, `langgraph`, `langchain-openai`
 - [ ] Define the LangGraph agent graph:
-  - Nodes: `plan`, `act` (tool call), `observe`, `respond`
-  - Edges: conditional routing based on whether tool use is needed
-- [ ] Implement **Planner sub-agent**:
-  - Takes the user query as input
-  - Outputs `{ max_retries: int, complexity: "low" | "medium" | "high" }`
-  - High complexity → more retries allowed; low complexity → minimal retries
+  - Graph shape: `START → agent → conditional(tools → agent loop | END)`
+  - `AgentState` TypedDict: messages (add_messages reducer), max_retries, retry_count, call_log
+- [ ] Comprehensive **system prompt** in `nodes.py` — lists all available tools, instructs the agent to act before asking for clarification, mandates source citations for web search results
+- [ ] `max_retries` defaults to 5, passed in the initial graph input by the FastAPI router (no planner sub-agent)
 - [ ] Implement **Tool Call Deduplication**:
   - Maintain `call_log: List[{tool, params, count}]` in agent state
   - Before each tool call, check if `(tool, params)` already exists in `call_log`
   - If count ≥ 2, skip the tool call and proceed to respond with current information
-  - Log a `"max_retries_reached"` event for observability
 - [ ] Wire the agent into the SSE streaming endpoint
-  - Intermediate steps (tool invocations, observations) emitted as SSE events
+  - `on_chat_model_stream` (agent node) → `{"token": "..."}` SSE events
+  - `on_tool_start` → `{"step": "tool_call", "tool": "..."}` SSE events
   - Final answer streamed as tokens
 
 ### Test Criteria
-- Agent performs multi-step reasoning for a complex query
-- Planner correctly assigns retry limits based on query complexity
+- Agent performs multi-step reasoning for a complex query using tools without excessive clarifying questions
+- `max_retries=5` allows sufficient tool-use rounds for complex tasks
 - Sending the same tool call twice triggers deduplication on the third attempt
-- Intermediate reasoning steps appear in the UI stream
+- Intermediate tool call steps appear in the UI stream
 
 ---
 
@@ -274,7 +272,7 @@ Each stage is independently testable. Complete and verify a stage before moving 
 
 #### 10b — Long-Term Memory (Cross-Session)
 - [ ] PostgreSQL schema: `memories (id, user_id, summary, created_at, updated_at)`
-- [ ] At end of each session (or when history exceeds token threshold): summarize key facts with `gpt-5.4-nano` → upsert into `memories` for the user
+- [ ] At end of each session (or when history exceeds token threshold): summarize key facts with `gpt-5.4-mini` → upsert into `memories` for the user
 - [ ] At the start of every new thread: fetch latest memory summary for the user and inject into the agent system prompt
 - [ ] Memory update tool: agent can call `update_memory(fact)` mid-conversation to store an explicit fact
 
@@ -295,14 +293,14 @@ Each stage is independently testable. Complete and verify a stage before moving 
 | Layer | Tool | Catches | Applied To |
 |---|---|---|---|
 | 1 | OpenAI Moderation API | Hate, harassment, self-harm, sexual content, violence | Input + Output |
-| 2 | `gpt-5.4-nano` LLM classifier | Prompt injection, jailbreaks | Input only (escalated from layer 1) |
+| 2 | `gpt-5.4-mini` LLM classifier | Prompt injection, jailbreaks | Input only (escalated from layer 1) |
 | 3 | Regex validators | PII leakage (email, phone, SSN) | Output only |
 
 ### Tasks
 - [ ] **Input Guardrail** (runs after user submits, before agent):
   - Call `openai.moderations.create()` on the user message
   - If flagged → emit SSE refusal event, do not invoke agent, log to `guardrail_logs`
-  - If moderation passes but message matches injection patterns (e.g. `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-nano` classifier
+  - If moderation passes but message matches injection patterns (e.g. `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-mini` classifier
   - If classifier flags it → emit SSE refusal event, do not invoke agent, log to `guardrail_logs`
 - [ ] **Output Guardrail** (runs after agent responds, before final SSE stream):
   - Call `openai.moderations.create()` on the full response
@@ -373,7 +371,7 @@ Each stage is independently testable. Complete and verify a stage before moving 
 - [ ] Frontend: image attach button in chat input, thumbnail preview before send
 - [ ] Backend: `POST /threads/:id/chat` accepts `multipart/form-data` with optional image
 - [ ] Image saved to local volume (or object storage); path stored in `messages.media_refs`
-- [ ] Image passed to `gpt-5.4-nano` vision endpoint as base64 alongside the text prompt
+- [ ] Image passed to `gpt-5.4-mini` vision endpoint as base64 alongside the text prompt
 - [ ] Guardrails applied to image content description extracted by the model
 
 ### Test Criteria

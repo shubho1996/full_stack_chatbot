@@ -66,13 +66,13 @@
 
 ## Stage 3 — LLM Integration & Real-Time Streaming
 
-**Goal:** Real responses from `gpt-5.4-nano`, streamed token-by-token to the UI.
+**Goal:** Real responses from `gpt-5.4-mini`, streamed token-by-token to the UI.
 
 ### Tasks
 - [x] Install `openai>=1.0.0` Python SDK
 - [x] Replace echo reply with a streaming OpenAI call via new `POST /threads/:id/chat` endpoint:
   - Build full message history from PostgreSQL as conversation context (with system prompt)
-  - Call `gpt-5.4-nano` with `stream=True` using `AsyncOpenAI`
+  - Call `gpt-5.4-mini` with `stream=True` using `AsyncOpenAI`
   - Stream user_message_id first, then each token as SSE: `data: {"token": "..."}`
   - On stream end, persist full assembled response to PostgreSQL; emit `data: {"done": true, "message_id": "..."}`
   - Errors caught and emitted as `data: {"error": "..."}` — agent is never invoked
@@ -99,29 +99,25 @@
 ### Tasks
 - [x] Install `langchain`, `langgraph`, `langchain-openai`
 - [x] LangGraph code isolated in `backend/agent/` (separate from FastAPI routers):
-  - `state.py` — `AgentState` TypedDict (messages, complexity, max_retries, retry_count, call_log)
+  - `state.py` — `AgentState` TypedDict (messages, max_retries, retry_count, call_log)
   - `tools.py` — `TOOLS = []` registry (Stage 5 will populate)
-  - `nodes.py` — `planner_node`, `agent_node`, `tools_node` with lazy LLM singletons
+  - `nodes.py` — `agent_node`, `tools_node` with lazy `ChatOpenAI` singleton
   - `graph.py` — `build_graph()` + module-level `graph` singleton imported by FastAPI
-- [x] Graph shape: START → planner → agent → conditional(tools → agent loop | END)
-- [x] Planner sub-agent uses `ChatOpenAI.with_structured_output(PlannerOutput)`:
-  - Pydantic schema enforces `complexity: str` and `max_retries: int`
-  - `low` → 1, `medium` → 2, `high` → 3
+- [x] Graph shape: START → agent → conditional(tools → agent loop | END)
+- [x] `max_retries` defaults to 5 and is passed in the initial graph input by FastAPI; no planner sub-agent
+- [x] Comprehensive system prompt in `nodes.py` tells the agent what tools are available, instructs it to act before asking for clarification, and mandates source citations for web search results
 - [x] Tool call deduplication in `tools_node`:
   - `call_log: list[{tool, params, count}]` tracked in AgentState
   - Same (tool, params) called ≥ 2 times → skip, return synthetic ToolMessage
   - `retry_count` incremented each round; routing checks `retry_count < max_retries`
 - [x] `/threads/:id/chat` now drives `graph.astream_events()` (replaces raw `AsyncOpenAI`):
-  - `on_chain_end` (planner node) → `{"step": "planner", complexity, max_retries}`
   - `on_chat_model_stream` (agent node) → `{"token": "..."}`
-  - `on_tool_start` → `{"step": "tool_call", tool, input}`
-  - `on_tool_end` → `{"step": "tool_result", tool, output}`
+  - `on_tool_start` → `{"step": "tool_call", tool}`
 - [x] Frontend: collapsible **Reasoning** section above the answer bubble shows all steps inline
 
 ### Test Criteria
-- [x] Planner assigns correct retry limits — "What is 2+2?" → complexity: low, max_retries: 1 (confirmed)
 - [x] Multi-turn context works — "multiply that by 10" correctly recalled prior answer (confirmed)
-- [x] Intermediate steps (planner) appear in frontend Reasoning section
+- [x] Intermediate steps (tool calls) appear in frontend Reasoning section
 - [ ] Agent performs 2+ tool calls in one turn (requires Stage 5 tools — dedup logic is in place)
 - [ ] Dedup: same (tool, params) called 3× → 3rd skipped (logic implemented, testable in Stage 5)
 
@@ -262,7 +258,7 @@
 
 #### 9b — Long-Term Memory
 - [ ] PostgreSQL schema: `memories (id UUID PK, summary TEXT, created_at, updated_at)`
-- [ ] At end of each session (or when history exceeds a token threshold): run a summarization call to `gpt-5.4-nano` → upsert summary into `memories`
+- [ ] At end of each session (or when history exceeds a token threshold): run a summarization call to `gpt-5.4-mini` → upsert summary into `memories`
 - [ ] At the start of every new thread: fetch the latest memory summary and inject into agent system prompt as: `"Here's what I know about you from previous conversations: {summary}"`
 - [ ] Agent tool: `update_memory(fact: str)` — agent can explicitly store a new fact mid-conversation
 
@@ -282,7 +278,7 @@
 - [ ] Frontend: image attach button in chat input; thumbnail preview before send
 - [ ] Backend: `POST /threads/:id/chat` accepts `multipart/form-data` with optional image
 - [ ] Image saved to local `media/` directory; path stored in `messages.media_refs`
-- [ ] Image passed to `gpt-5.4-nano` vision endpoint as base64 alongside the text prompt
+- [ ] Image passed to `gpt-5.4-mini` vision endpoint as base64 alongside the text prompt
 - [ ] Guardrails applied to image content description extracted by the model
 
 ### Test Criteria
@@ -301,14 +297,14 @@
 | Layer | Tool | Catches |
 |---|---|---|
 | 1 | OpenAI Moderation API | Hate, harassment, self-harm, sexual content, violence |
-| 2 | `gpt-5.4-nano` LLM classifier | Prompt injection, jailbreaks (escalated from layer 1 only) |
+| 2 | `gpt-5.4-mini` LLM classifier | Prompt injection, jailbreaks (escalated from layer 1 only) |
 | 3 | Regex validators | PII leakage in output (email, phone, SSN) |
 
 ### Tasks
 - [ ] **Input Guardrail** (runs after user submits, before agent):
   - Call `openai.moderations.create()` on the user message
   - If moderation flags it → emit SSE refusal event, do not invoke agent
-  - If moderation passes but message matches injection patterns (e.g. contains `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-nano` classifier
+  - If moderation passes but message matches injection patterns (e.g. contains `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-mini` classifier
   - If classifier flags it → emit SSE refusal event, do not invoke agent
 - [ ] **Output Guardrail** (runs after agent responds, before SSE stream):
   - Call `openai.moderations.create()` on the full response

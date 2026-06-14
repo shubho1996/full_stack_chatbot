@@ -7,7 +7,7 @@ A production-grade agentic chatbot built on the ReAct (Reasoning + Acting) frame
 | Layer | Technology |
 |---|---|
 | Agent Framework | LangChain + LangGraph (ReAct) |
-| LLM | `gpt-5.4-nano` (OpenAI) |
+| LLM | `gpt-5.4-mini` (OpenAI) |
 | Embeddings | `all-MiniLM-L6-v2` (SentenceTransformers, local) |
 | Frontend | React + Vite |
 | Backend | FastAPI (Python) |
@@ -149,7 +149,7 @@ After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
 ### Stage 3 — LLM Integration & Real-Time Streaming ✅
 - **`POST /threads/:id/chat`** — streaming endpoint using Server-Sent Events (SSE)
   - Loads full thread history from PostgreSQL as conversation context
-  - Calls `gpt-5.4-nano` with `stream=True`
+  - Calls `gpt-5.4-mini` with `stream=True`
   - Emits `{"user_message_id"}` first, then `{"token": "..."}` per token, then `{"done": true, "message_id": "..."}` on completion
   - Errors emitted as `{"error": "..."}` — no crash, no unhandled exception
   - Both user and assistant messages persisted to PostgreSQL after streaming ends
@@ -194,19 +194,18 @@ All LangGraph code lives in `backend/agent/` — isolated from FastAPI routers s
 
 | File | Purpose |
 |---|---|
-| `agent/state.py` | `AgentState` TypedDict — messages, complexity, max_retries, retry_count, call_log |
+| `agent/state.py` | `AgentState` TypedDict — messages, max_retries, retry_count, call_log |
 | `agent/tools.py` | `TOOLS = []` registry — Stage 5 appends real tools here |
-| `agent/nodes.py` | `planner_node`, `agent_node`, `tools_node` — lazy `ChatOpenAI` singletons |
+| `agent/nodes.py` | `agent_node`, `tools_node` — lazy `ChatOpenAI` singleton + comprehensive system prompt |
 | `agent/graph.py` | Graph wiring + module-level `graph` singleton |
 
-**Graph flow:** `START → planner → agent → [tools → agent]* → END`
+**Graph flow:** `START → agent → [tools → agent]* → END`
 
-- **Planner node** classifies query complexity (`low/medium/high`) and sets `max_retries` (1/2/3) using structured output
-- **Agent node** calls `ChatOpenAI` with the full message history + system prompt; uses `streaming=True` so tokens surface via `astream_events`
+- **Agent node** calls `gpt-5.4-mini` with the full message history + a comprehensive system prompt that lists all available tools and instructs the model to act before asking for clarification; uses `streaming=True` so tokens surface via `astream_events`
 - **Tools node** executes tool calls with deduplication: same `(tool, params)` called ≥ 2 times is skipped with a synthetic ToolMessage
-- **Router** (`_route_after_agent`) sends the agent back to tools if there are tool calls and `retry_count < max_retries`, otherwise exits to END
+- **Router** (`_route_after_agent`) sends the agent back to tools if there are tool calls and `retry_count < max_retries` (default 5), otherwise exits to END
 - FastAPI `/chat` endpoint drives `graph.astream_events()` and translates events into SSE frames
-- Frontend shows a collapsible **Reasoning** section with planner output, tool calls, and tool results above the final answer bubble
+- Frontend shows a collapsible **Reasoning** section with tool calls and tool results above the final answer bubble
 
 ---
 

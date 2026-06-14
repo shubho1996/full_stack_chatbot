@@ -11,7 +11,7 @@ A production-grade, multi-user agentic chatbot built on the ReAct (Reasoning + A
 | Layer | Technology |
 |---|---|
 | Agent Framework | LangChain + LangGraph (ReAct) |
-| LLM | `gpt-5.4-nano` (OpenAI) |
+| LLM | `gpt-5.4-mini` (OpenAI) |
 | Embeddings | `all-MiniLM-L6-v2` (SentenceTransformers) |
 | Frontend | React |
 | Backend | Python (FastAPI or equivalent) |
@@ -28,8 +28,9 @@ A production-grade, multi-user agentic chatbot built on the ReAct (Reasoning + A
 
 ### 1. Agentic ReAct Framework
 - The agent reasons step-by-step using the ReAct loop: **Thought → Action → Observation → Repeat**.
-- Built with LangGraph to define stateful, cyclical agent graphs.
-- A **planner sub-agent** evaluates query complexity at runtime and dynamically decides the maximum number of retries allowed for the current task.
+- Built with LangGraph to define a stateful, cyclical agent graph: `START → agent → [tools → agent]* → END`.
+- A comprehensive **system prompt** instructs the agent to use tools proactively — act first, ask for clarification only when strictly necessary.
+- `max_retries` (default 5) limits the tool-execution loop per turn; tool call deduplication prevents looping on identical `(tool, params)` pairs.
 
 ### 2. Tool Use
 The agent has access to the following tools:
@@ -105,7 +106,7 @@ A hybrid safety layer is applied at two checkpoints using three complementary te
 | Technique | What it catches | When it runs |
 |---|---|---|
 | **OpenAI Moderation API** | Hate, harassment, self-harm, sexual content, violence | Input + Output |
-| **LLM Classifier** (`gpt-5.4-nano`) | Prompt injection, jailbreak attempts, policy violations | Input only (if moderation passes but content looks suspicious) |
+| **LLM Classifier** (`gpt-5.4-mini`) | Prompt injection, jailbreak attempts, policy violations | Input only (if moderation passes but content looks suspicious) |
 | **Regex validators** | PII leakage (email, phone numbers, SSNs) | Output only |
 
 ### Flow
@@ -146,7 +147,7 @@ A hybrid safety layer is applied at two checkpoints using three complementary te
 
 ## LLM & Embedding Configuration
 
-- **LLM**: All reasoning, generation, and tool-calling use `gpt-5.4-nano` via the OpenAI API.
+- **LLM**: All reasoning, generation, and tool-calling use `gpt-5.4-mini` via the OpenAI API.
 - **Embeddings**: Document chunking and vector creation use `all-MiniLM-L6-v2` from `sentence-transformers` (local inference, no API cost).
 
 ---
@@ -162,7 +163,7 @@ A hybrid safety layer is applied at two checkpoints using three complementary te
 
 ## Image Input
 
-- Users can upload **images** alongside text queries; the agent uses the vision capabilities of `gpt-5.4-nano` to reason over image content.
+- Users can upload **images** alongside text queries; the agent uses the vision capabilities of `gpt-5.4-mini` to reason over image content.
 - Images are stored as part of the thread history in PostgreSQL with a reference to the file (stored in object storage or local volume).
 - RAG and guardrails apply equally to content extracted from images.
 
