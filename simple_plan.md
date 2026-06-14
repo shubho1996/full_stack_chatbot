@@ -163,25 +163,34 @@
 **Goal:** Build our own MCP server from scratch and connect it to the agent.
 
 ### Tasks
-- [ ] Create `mcp_servers/calculator/server.py` using the MCP Python SDK (`mcp`)
-- [ ] Expose tools over `stdio` transport:
+- [x] Create `mcp_servers/calculator/server.py` using the MCP Python SDK (`mcp`)
+- [x] Expose tools over `stdio` transport:
   - `add(a: float, b: float) → float`
   - `subtract(a: float, b: float) → float`
   - `multiply(a: float, b: float) → float`
   - `divide(a: float, b: float) → float` (raises error on divide-by-zero)
-  - `evaluate(expression: str) → float` (safe eval using `ast.literal_eval` logic, no `exec`)
-- [ ] Add a `README` under `mcp_servers/calculator/` documenting the tools and how to run the server
-- [ ] Start the calculator MCP server as a subprocess at backend startup
-- [ ] Connect to it via LangChain's MCP client (`langchain-mcp-adapters`) and add its tools to the agent
-- [ ] Register as a default tool — no user setup required
+  - `evaluate(expression: str) → float` (safe eval via AST walker, no `exec`)
+- [x] Add a `README` under `mcp_servers/calculator/` documenting the tools and how to run the server
+- [x] Tools discovered at backend startup via `langchain-mcp-adapters` `MultiServerMCPClient`; subprocess managed per-call by the adapter (0.1.0+ API)
+- [x] `backend/agent/mcp_client.py` — `start_mcp_client` / `stop_mcp_client` wired into FastAPI lifespan in `main.py`
+- [x] `backend/agent/nodes.py` — `_agent_llm()` and `tools_node` include MCP tools via `get_mcp_tools()`
+- [x] Register as a default tool — no user setup required
 
 ### Test Criteria
-- Run `python mcp_servers/calculator/server.py` — server starts without errors
-- Call each tool directly via MCP client and verify correct results
-- `divide(5, 0)` returns a structured error, not a crash
-- `evaluate("2 ** 10 + 5 * 3")` returns `1039`
-- Ask agent "what is 1234 * 5678?" → agent calls `multiply` via MCP and returns the correct answer
-- Ask agent "what is (100 / 4) + 37?" → agent calls `evaluate` via MCP
+- [x] `python mcp_servers/calculator/server.py` — starts without errors ✓
+- [x] `add(3,4)=7`, `subtract(10,3)=7`, `multiply(6,7)=42`, `divide(15,4)=3.75` ✓
+- [x] `divide(5, 0)` returns structured error message, no crash ✓
+- [x] `evaluate("2 ** 10 + 5 * 3")` returns `1039.0` ✓
+- [x] `evaluate("(100 / 4) + 37")` returns `62.0` ✓
+- [ ] Ask agent "what is 1234 * 5678?" → agent calls `multiply` via MCP (live test)
+- [ ] Ask agent "what is (100 / 4) + 37?" → agent calls `evaluate` via MCP (live test)
+
+### Implementation Notes
+- Used `FastMCP` from `mcp.server.fastmcp` for the server — minimal boilerplate
+- `evaluate` uses a recursive AST walker (`ast.BinOp`, `ast.UnaryOp`, `ast.Constant`) — no `exec`/`eval`
+- `langchain-mcp-adapters` 0.1.0+ dropped the persistent async context manager; `get_tools()` is now `async` and each tool invocation creates its own subprocess session
+- Google Search (SerpAPI) replaced by DuckDuckGo (`ddgs` package) earlier in Stage 5 — free, no API key
+- `requests` and `langchain-community` removed from dependencies
 
 ---
 

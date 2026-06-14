@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from .mcp_client import get_mcp_tools
 from .state import AgentState
 from .tools import TOOLS
 
@@ -27,7 +28,8 @@ SYSTEM_PROMPT = "You are a helpful assistant."
 
 
 # Lazy singletons so OPENAI_API_KEY is read at first call (after dotenv loads),
-# not at import time.
+# not at import time.  MCP tools are available by first call because the
+# FastAPI lifespan starts them before the first request.
 
 @lru_cache(maxsize=1)
 def _planner_llm() -> ChatOpenAI:
@@ -36,9 +38,14 @@ def _planner_llm() -> ChatOpenAI:
 
 @lru_cache(maxsize=1)
 def _agent_llm():
+    all_tools = TOOLS + get_mcp_tools()
     llm = ChatOpenAI(model=MODEL, temperature=0, streaming=True)
-    # bind_tools is a no-op when TOOLS is empty; wired up for Stage 5+
-    return llm.bind_tools(TOOLS) if TOOLS else llm
+    return llm.bind_tools(all_tools) if all_tools else llm
+
+
+def _all_tools() -> list:
+    """Return the full tool list (static + MCP) for tool lookup at runtime."""
+    return TOOLS + get_mcp_tools()
 
 
 # ── Planner ──────────────────────────────────────────────────────────────────
@@ -123,7 +130,7 @@ async def tools_node(state: AgentState) -> dict:
         return {}
 
     call_log: list[dict] = list(state.get("call_log", []))
-    tool_map = {t.name: t for t in TOOLS}
+    tool_map = {t.name: t for t in _all_tools()}
     results: list[ToolMessage] = []
 
     for tc in last.tool_calls:

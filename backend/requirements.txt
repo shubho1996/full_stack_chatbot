@@ -9,3 +9,5 @@ langchain
 langchain-openai
 langgraph
 ddgs
+mcp
+langchain-mcp-adapters

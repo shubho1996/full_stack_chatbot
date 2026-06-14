@@ -64,7 +64,6 @@ cp .env.example .env
 |---|---|---|
 | `OPENAI_API_KEY` | 1 | OpenAI API key |
 | `DATABASE_URL` | 1 | PostgreSQL connection string |
-| `SERPAPI_KEY` | 5 | SerpAPI key for Google Search tool |
 | `WORKSPACE_DIR` | 5 | Sandboxed directory for File System tool |
 | `MEDIA_DIR` | 10 | Local path for uploaded images |
 | `CHROMA_DIR` | 8 | Local path for ChromaDB persistence |
@@ -161,7 +160,22 @@ After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
   - Input and Send button locked during streaming
   - Full conversation context sent to the LLM on every turn
 
-### Stage 5 — Built-In Tools (File System + Google Search) ✅
+### Stage 6 — Custom MCP Server: Calculator ✅
+A custom MCP server (`mcp_servers/calculator/server.py`) built with `FastMCP` exposes five arithmetic tools to the agent over `stdio` transport:
+
+| Tool | Description |
+|---|---|
+| `add(a, b)` | Addition |
+| `subtract(a, b)` | Subtraction |
+| `multiply(a, b)` | Multiplication |
+| `divide(a, b)` | Division — structured error on divide-by-zero |
+| `evaluate(expression)` | Safe expression evaluator (AST walker, no `exec`) |
+
+- `backend/agent/mcp_client.py` discovers tools at startup via `MultiServerMCPClient` (`langchain-mcp-adapters`)
+- Wired into FastAPI's `lifespan` — no manual startup required
+- `nodes.py` includes MCP tools alongside file-system and DuckDuckGo tools automatically
+
+### Stage 5 — Built-In Tools (File System + DuckDuckGo Search) ✅
 All tools live in `backend/agent/tools.py` and are auto-bound to the agent at startup.
 
 **File System tools** — sandboxed to `<project_root>/workspace/` (auto-created):
@@ -170,8 +184,8 @@ All tools live in `backend/agent/tools.py` and are auto-bound to the agent at st
 - `list_directory(path)` — lists entries as `FILE name` / `DIR name` rows
 - Sandbox uses `Path.relative_to()` for traversal detection — `../../etc/passwd` is blocked before any I/O
 
-**Google Search tool** — calls SerpAPI, returns top-5 results (title + URL + snippet):
-- Set `SERPAPI_KEY` in `.env` to enable; tool degrades gracefully with a descriptive error if unset
+**DuckDuckGo Search tool** — free web search via `ddgs`, no API key required:
+- Returns top-5 results (title + URL + snippet) for any query
 
 **Planner improvement** — prompt rewritten to explicitly count tool calls and map to tiers (0-1 → low, 2 → medium, 3+ → high) so multi-step tasks get sufficient retry budget.
 
@@ -236,8 +250,8 @@ curl -X POST http://localhost:8000/threads/<thread_id>/messages \
 | 2 | Chat thread management (PostgreSQL + UI) | ✅ Done |
 | 3 | LLM integration & real-time SSE streaming | ✅ Done |
 | 4 | ReAct agent with LangGraph | ✅ Done |
-| 5 | Built-in tools (File System + Google Search) | ✅ Done |
-| 6 | Custom MCP server (Calculator) | 🔜 Next |
+| 5 | Built-in tools (File System + DuckDuckGo Search) | ✅ Done |
+| 6 | Custom MCP server (Calculator) | ✅ Done |
 | 7 | Dynamic MCP server registration | — |
 | 8 | Document ingestion & RAG | — |
 | 9 | Memory (short-term & long-term) | — |
