@@ -156,6 +156,27 @@ A safety layer is applied at two checkpoints:
 
 ---
 
+## MCP Server Integration
+
+### Dynamic User-Added MCP Servers
+- Users can register any MCP-compatible server by providing a name, transport type (`stdio` or `sse`), and connection config (command + args, or URL).
+- Registered MCP servers are stored in PostgreSQL and loaded into the agent's tool registry at session start.
+- The agent automatically discovers and calls tools exposed by the registered MCP server — no hardcoded tool definitions needed.
+- Users can enable/disable or remove MCP servers from the UI at any time.
+
+### Built-In Custom MCP Server — Calculator
+- A first-party MCP server built for this project as a learning exercise.
+- Exposes the following tools over `stdio` transport:
+  - `add(a, b)` — addition
+  - `subtract(a, b)` — subtraction
+  - `multiply(a, b)` — multiplication
+  - `divide(a, b)` — division (with divide-by-zero handling)
+  - `evaluate(expression)` — evaluate a math expression string safely
+- When the user asks anything involving calculation, the agent automatically routes to the calculator MCP server.
+- Registered as a default MCP server for all users (no manual setup required).
+
+---
+
 ## Out of Scope (for now)
 
 - Fine-tuning or custom model training.
