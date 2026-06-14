@@ -1,1 +1,45 @@
+# Environment
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+*.pyc
+.Python
+
+# Node / npm
+node_modules/
+frontend/dist/
+frontend/.vite/
+.npm/
+
+# ChromaDB
+chroma/
+
+# Media uploads
+media/
+
+# Workspace (File System tool sandbox)
+workspace/
+
+# Arize Phoenix
+phoenix_data/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
