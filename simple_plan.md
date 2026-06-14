@@ -97,27 +97,33 @@
 **Goal:** Replace the direct LLM call with a stateful ReAct agent that can reason and act.
 
 ### Tasks
-- [ ] Install `langchain`, `langgraph`, `langchain-openai`
-- [ ] Define LangGraph agent graph:
-  - **Nodes:** `planner`, `agent` (think + act), `tools`, `responder`
-  - **Edges:** conditional — if agent decides to call a tool → tools node → back to agent; else → responder
-- [ ] Planner sub-agent:
-  - Input: user query
-  - Output: `{ complexity: "low"|"medium"|"high", max_retries: int }`
-  - `low` → 1 retry, `medium` → 2, `high` → 3
-- [ ] Tool call deduplication in agent state:
-  - State tracks `call_log: list[{tool, params, count}]`
-  - Before each tool call: if same `(tool, params)` already called ≥ 2 times → skip, proceed to respond
-- [ ] Wire agent into the streaming endpoint:
-  - Intermediate steps (tool calls, observations) emitted as SSE events: `data: {"step": "tool_call", "tool": "...", "input": "..."}`
-  - Final answer streamed as `data: {"token": "..."}`
-- [ ] Frontend: display intermediate agent steps in a collapsible "Thinking..." section above the final answer
+- [x] Install `langchain`, `langgraph`, `langchain-openai`
+- [x] LangGraph code isolated in `backend/agent/` (separate from FastAPI routers):
+  - `state.py` — `AgentState` TypedDict (messages, complexity, max_retries, retry_count, call_log)
+  - `tools.py` — `TOOLS = []` registry (Stage 5 will populate)
+  - `nodes.py` — `planner_node`, `agent_node`, `tools_node` with lazy LLM singletons
+  - `graph.py` — `build_graph()` + module-level `graph` singleton imported by FastAPI
+- [x] Graph shape: START → planner → agent → conditional(tools → agent loop | END)
+- [x] Planner sub-agent uses `ChatOpenAI.with_structured_output(PlannerOutput)`:
+  - Pydantic schema enforces `complexity: str` and `max_retries: int`
+  - `low` → 1, `medium` → 2, `high` → 3
+- [x] Tool call deduplication in `tools_node`:
+  - `call_log: list[{tool, params, count}]` tracked in AgentState
+  - Same (tool, params) called ≥ 2 times → skip, return synthetic ToolMessage
+  - `retry_count` incremented each round; routing checks `retry_count < max_retries`
+- [x] `/threads/:id/chat` now drives `graph.astream_events()` (replaces raw `AsyncOpenAI`):
+  - `on_chain_end` (planner node) → `{"step": "planner", complexity, max_retries}`
+  - `on_chat_model_stream` (agent node) → `{"token": "..."}`
+  - `on_tool_start` → `{"step": "tool_call", tool, input}`
+  - `on_tool_end` → `{"step": "tool_result", tool, output}`
+- [x] Frontend: collapsible **Reasoning** section above the answer bubble shows all steps inline
 
 ### Test Criteria
-- Agent performs multi-step reasoning (at least 2 tool calls in one turn)
-- Planner assigns correct retry limits for simple vs complex queries
-- Triggering the same tool with identical args 3 times → 3rd call is skipped; agent responds with what it has
-- Intermediate steps appear in the UI
+- [x] Planner assigns correct retry limits — "What is 2+2?" → complexity: low, max_retries: 1 (confirmed)
+- [x] Multi-turn context works — "multiply that by 10" correctly recalled prior answer (confirmed)
+- [x] Intermediate steps (planner) appear in frontend Reasoning section
+- [ ] Agent performs 2+ tool calls in one turn (requires Stage 5 tools — dedup logic is in place)
+- [ ] Dedup: same (tool, params) called 3× → 3rd skipped (logic implemented, testable in Stage 5)
 
 ---
 

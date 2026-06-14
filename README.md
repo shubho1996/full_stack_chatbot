@@ -26,8 +26,13 @@ full_stack_chatbot/
 │   ├── models.py            # ORM models (Thread, Message)
 │   ├── schemas.py           # Pydantic request/response schemas
 │   ├── requirements.txt
-│   └── routers/
-│       └── threads.py       # Thread & message CRUD endpoints
+│   ├── routers/
+│   │   └── threads.py       # Thread & message CRUD + /chat SSE endpoint
+│   └── agent/               # LangGraph — isolated from FastAPI
+│       ├── state.py         # AgentState TypedDict
+│       ├── tools.py         # TOOLS registry (empty until Stage 5)
+│       ├── nodes.py         # planner_node, agent_node, tools_node
+│       └── graph.py         # Compiled graph singleton
 ├── frontend/
 │   ├── index.html
 │   ├── package.json
@@ -128,20 +133,6 @@ After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
 - PostgreSQL running via Docker Compose with a persistent named volume
 - `.env` wired for `DATABASE_URL` and `OPENAI_API_KEY`
 
-### Stage 3 — LLM Integration & Real-Time Streaming ✅
-- **`POST /threads/:id/chat`** — new streaming endpoint using Server-Sent Events (SSE)
-  - Loads full thread history from PostgreSQL as conversation context
-  - Calls `gpt-5.4-nano` with `stream=True` via the OpenAI async client
-  - Emits `{"user_message_id"}` first, then `{"token": "..."}` for each token, then `{"done": true, "message_id": "..."}` on completion
-  - Errors emitted as `{"error": "..."}` — no crash, no unhandled exception
-  - Both user and assistant messages persisted to PostgreSQL after streaming ends
-- **Frontend streaming UI**:
-  - Uses `fetch` + `ReadableStream` (EventSource doesn't support POST)
-  - Assistant bubble appears immediately and fills in token-by-token
-  - Blinking cursor `▌` shown via CSS animation while streaming
-  - Input and Send button locked during streaming
-  - Full conversation context sent to the LLM on every turn
-
 ### Stage 2 — Chat Thread Management ✅
 - **PostgreSQL schema** — `threads` and `messages` tables, created automatically on backend startup
 - **`POST /threads`** — creates a new thread; auto-titles it from the first message sent
@@ -155,6 +146,39 @@ After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
   - Typing indicator while waiting for reply
   - Enter to send, Shift+Enter for newline
   - Clicking any thread in the sidebar resumes it with full history
+
+### Stage 3 — LLM Integration & Real-Time Streaming ✅
+- **`POST /threads/:id/chat`** — streaming endpoint using Server-Sent Events (SSE)
+  - Loads full thread history from PostgreSQL as conversation context
+  - Calls `gpt-5.4-nano` with `stream=True`
+  - Emits `{"user_message_id"}` first, then `{"token": "..."}` per token, then `{"done": true, "message_id": "..."}` on completion
+  - Errors emitted as `{"error": "..."}` — no crash, no unhandled exception
+  - Both user and assistant messages persisted to PostgreSQL after streaming ends
+- **Frontend streaming UI**:
+  - Uses `fetch` + `ReadableStream` (EventSource doesn't support POST)
+  - Assistant bubble appears immediately and fills in token-by-token
+  - Blinking cursor `▌` shown via CSS animation while streaming
+  - Input and Send button locked during streaming
+  - Full conversation context sent to the LLM on every turn
+
+### Stage 4 — ReAct Agent with LangGraph ✅
+All LangGraph code lives in `backend/agent/` — isolated from FastAPI routers so it can be read and extended independently.
+
+| File | Purpose |
+|---|---|
+| `agent/state.py` | `AgentState` TypedDict — messages, complexity, max_retries, retry_count, call_log |
+| `agent/tools.py` | `TOOLS = []` registry — Stage 5 appends real tools here |
+| `agent/nodes.py` | `planner_node`, `agent_node`, `tools_node` — lazy `ChatOpenAI` singletons |
+| `agent/graph.py` | Graph wiring + module-level `graph` singleton |
+
+**Graph flow:** `START → planner → agent → [tools → agent]* → END`
+
+- **Planner node** classifies query complexity (`low/medium/high`) and sets `max_retries` (1/2/3) using structured output
+- **Agent node** calls `ChatOpenAI` with the full message history + system prompt; uses `streaming=True` so tokens surface via `astream_events`
+- **Tools node** executes tool calls with deduplication: same `(tool, params)` called ≥ 2 times is skipped with a synthetic ToolMessage
+- **Router** (`_route_after_agent`) sends the agent back to tools if there are tool calls and `retry_count < max_retries`, otherwise exits to END
+- FastAPI `/chat` endpoint drives `graph.astream_events()` and translates events into SSE frames
+- Frontend shows a collapsible **Reasoning** section with planner output, tool calls, and tool results above the final answer bubble
 
 ---
 
@@ -197,8 +221,8 @@ curl -X POST http://localhost:8000/threads/<thread_id>/messages \
 | 1 | Project scaffolding & local dev setup | ✅ Done |
 | 2 | Chat thread management (PostgreSQL + UI) | ✅ Done |
 | 3 | LLM integration & real-time SSE streaming | ✅ Done |
-| 4 | ReAct agent with LangGraph | 🔜 Next |
-| 5 | Built-in tools (File System + Google Search) | — |
+| 4 | ReAct agent with LangGraph | ✅ Done |
+| 5 | Built-in tools (File System + Google Search) | 🔜 Next |
 | 6 | Custom MCP server (Calculator) | — |
 | 7 | Dynamic MCP server registration | — |
 | 8 | Document ingestion & RAG | — |

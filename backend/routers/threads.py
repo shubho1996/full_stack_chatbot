@@ -1,14 +1,14 @@
 import json
-import os
 from datetime import datetime
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from openai import AsyncOpenAI
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.orm import Session
 
+from agent import graph
 from database import SessionLocal, get_db
 from models import Message, Thread
 from schemas import (
@@ -18,8 +18,6 @@ from schemas import (
     ThreadCreate,
     ThreadResponse,
 )
-
-MODEL = "gpt-5.4-nano"
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -80,18 +78,18 @@ def chat(thread_id: UUID, body: MessageCreate, db: Session = Depends(get_db)):
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    # Build context from existing history before saving the new message
+    # Build LangChain message list from DB history + new user message
     existing = (
         db.query(Message)
         .filter(Message.thread_id == thread_id)
         .order_by(Message.created_at)
         .all()
     )
-    oai_messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        *[{"role": m.role, "content": m.content} for m in existing],
-        {"role": "user", "content": body.content},
+    lc_messages = [
+        HumanMessage(content=m.content) if m.role == "user" else AIMessage(content=m.content)
+        for m in existing
     ]
+    lc_messages.append(HumanMessage(content=body.content))
 
     # Persist user message
     is_first = len(existing) == 0
@@ -107,25 +105,44 @@ def chat(thread_id: UUID, body: MessageCreate, db: Session = Depends(get_db)):
     async def event_stream():
         yield f"data: {json.dumps({'user_message_id': user_msg_id})}\n\n"
 
-        client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         full_response = ""
 
         try:
-            stream = await client.chat.completions.create(
-                model=MODEL,
-                messages=oai_messages,
-                stream=True,
-            )
-            async for chunk in stream:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    full_response += delta.content
-                    yield f"data: {json.dumps({'token': delta.content})}\n\n"
+            async for event in graph.astream_events(
+                {"messages": lc_messages},
+                version="v2",
+            ):
+                kind = event["event"]
+                node = event.get("metadata", {}).get("langgraph_node", "")
+
+                # Planner finished — broadcast complexity + retry budget
+                if kind == "on_chain_end" and node == "planner":
+                    output = event.get("data", {}).get("output", {})
+                    if "complexity" in output:
+                        yield f"data: {json.dumps({'step': 'planner', 'complexity': output['complexity'], 'max_retries': output['max_retries']})}\n\n"
+
+                # Agent LLM streaming tokens (tool-call chunks have empty
+                # content and are filtered out by the `if chunk.content` guard)
+                elif kind == "on_chat_model_stream" and node == "agent":
+                    chunk = event["data"]["chunk"]
+                    if chunk.content:
+                        full_response += chunk.content
+                        yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+
+                # Tool about to execute
+                elif kind == "on_tool_start":
+                    yield f"data: {json.dumps({'step': 'tool_call', 'tool': event.get('name', ''), 'input': event['data'].get('input', {})})}\n\n"
+
+                # Tool finished
+                elif kind == "on_tool_end":
+                    output = str(event["data"].get("output", ""))[:300]
+                    yield f"data: {json.dumps({'step': 'tool_result', 'tool': event.get('name', ''), 'output': output})}\n\n"
+
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
             return
 
-        # Persist assistant message using a fresh session (we're inside async context)
+        # Persist the assembled assistant message
         save_db = SessionLocal()
         try:
             assistant_msg = Message(

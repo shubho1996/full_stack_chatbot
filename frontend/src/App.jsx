@@ -125,6 +125,79 @@ function ThreadItem({ thread, active, onClick }) {
   )
 }
 
+function ThinkingSection({ steps, streaming }) {
+  const [open, setOpen] = useState(true)
+  if (!steps || steps.length === 0) return null
+
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: '#6c7086',
+          fontSize: '12px',
+          cursor: 'pointer',
+          padding: '2px 0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+      >
+        <span>{open ? '▾' : '▸'}</span>
+        <span>
+          {streaming ? 'Thinking…' : `Reasoning (${steps.length} step${steps.length > 1 ? 's' : ''})`}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            marginTop: '6px',
+            padding: '8px 12px',
+            background: '#181825',
+            borderLeft: '2px solid #45475a',
+            borderRadius: '4px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}
+        >
+          {steps.map((step, i) => {
+            if (step.step === 'planner') {
+              return (
+                <div key={i} style={{ fontSize: '12px', color: '#a6adc8' }}>
+                  <span style={{ color: '#89dceb' }}>Planner</span>
+                  {' → '}complexity: <strong>{step.complexity}</strong>
+                  {', max retries: '}<strong>{step.max_retries}</strong>
+                </div>
+              )
+            }
+            if (step.step === 'tool_call') {
+              return (
+                <div key={i} style={{ fontSize: '12px', color: '#a6adc8' }}>
+                  <span style={{ color: '#a6e3a1' }}>▶ {step.tool}</span>
+                  {' '}
+                  <span style={{ color: '#6c7086' }}>{JSON.stringify(step.input)}</span>
+                </div>
+              )
+            }
+            if (step.step === 'tool_result') {
+              return (
+                <div key={i} style={{ fontSize: '12px', color: '#6c7086', paddingLeft: '12px' }}>
+                  ← {step.output}
+                </div>
+              )
+            }
+            return null
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageBubble({ message }) {
   const isUser = message.role === 'user'
   const isEmpty = message.streaming && message.content === ''
@@ -147,12 +220,15 @@ function MessageBubble({ message }) {
         {isUser ? (
           <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
         ) : (
-          <div className="markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
-            </ReactMarkdown>
-            {message.streaming && <span className="cursor">▌</span>}
-          </div>
+          <>
+            <ThinkingSection steps={message.steps} streaming={message.streaming} />
+            <div className="markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {message.content}
+              </ReactMarkdown>
+              {message.streaming && <span className="cursor">▌</span>}
+            </div>
+          </>
         )}
         {isUser && message.streaming && <span className="cursor">▌</span>}
       </div>
@@ -257,6 +333,12 @@ export default function App() {
           if (data.user_message_id) {
             setMessages((prev) =>
               prev.map((m) => (m.id === tempUserId ? { ...m, id: data.user_message_id } : m))
+            )
+          } else if (data.step && data.step !== 'planner') {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamingId ? { ...m, steps: [...(m.steps || []), data] } : m
+              )
             )
           } else if (data.token) {
             assistantContent += data.token
