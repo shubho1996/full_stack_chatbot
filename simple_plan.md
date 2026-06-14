@@ -247,28 +247,21 @@
 
 ---
 
-## Stage 10 — Multi-Modal Inputs (Image & Audio)
+## Stage 10 — Image Input
 
-**Goal:** Accept images and audio in the chat input.
+**Goal:** Accept images in the chat input and let the agent reason over them.
 
 ### Tasks
-
-#### 10a — Image
-- [ ] Frontend: image attach button; preview thumbnail before send
+- [ ] Frontend: image attach button in chat input; thumbnail preview before send
 - [ ] Backend: `POST /threads/:id/chat` accepts `multipart/form-data` with optional image
 - [ ] Image saved to local `media/` directory; path stored in `messages.media_refs`
-- [ ] Image passed to `gpt-5.4-nano` vision endpoint as base64 alongside text prompt
-
-#### 10b — Audio
-- [ ] Frontend: record-audio button (browser MediaRecorder API) or file upload (MP3/WAV/M4A)
-- [ ] Backend: audio uploaded, sent to **OpenAI Whisper** (`whisper-1`) for transcription
-- [ ] Transcript used as the user message text; audio path stored in `messages.media_refs`
-- [ ] Frontend: display `"🎤 Transcribed: <transcript>"` label above the message
+- [ ] Image passed to `gpt-5.4-nano` vision endpoint as base64 alongside the text prompt
+- [ ] Guardrails applied to image content description extracted by the model
 
 ### Test Criteria
 - Send an image of a chart and ask "what does this show?" — agent describes it correctly
-- Send an audio clip asking a question — transcript appears in UI, agent answers correctly
-- Multi-modal messages persist and are visible on thread resume
+- Image messages persist and are visible on thread resume
+- Guardrail intercepts a harmful image description before it reaches the user
 
 ---
 
@@ -276,21 +269,35 @@
 
 **Goal:** Block harmful inputs before the agent sees them; filter harmful outputs before the user sees them.
 
+### Approach: Hybrid (3-layer)
+
+| Layer | Tool | Catches |
+|---|---|---|
+| 1 | OpenAI Moderation API | Hate, harassment, self-harm, sexual content, violence |
+| 2 | `gpt-5.4-nano` LLM classifier | Prompt injection, jailbreaks (escalated from layer 1 only) |
+| 3 | Regex validators | PII leakage in output (email, phone, SSN) |
+
 ### Tasks
-- [ ] **Input Guardrail** (runs immediately after user submits):
-  - Use `gpt-5.4-nano` with a classifier system prompt to detect: prompt injection, jailbreak attempts, policy violations
-  - If flagged: emit an SSE event with a canned refusal; do not invoke the agent
-- [ ] **Output Guardrail** (runs after agent produces a response, before final SSE token stream):
-  - Detect: toxic content, PII leakage, harmful instructions
-  - If flagged: replace response with a safe fallback message
-- [ ] PostgreSQL schema: `guardrail_logs (id, direction TEXT, flagged_content TEXT, reason TEXT, created_at)`
-- [ ] Log all flagged events to `guardrail_logs`
+- [ ] **Input Guardrail** (runs after user submits, before agent):
+  - Call `openai.moderations.create()` on the user message
+  - If moderation flags it → emit SSE refusal event, do not invoke agent
+  - If moderation passes but message matches injection patterns (e.g. contains `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-nano` classifier
+  - If classifier flags it → emit SSE refusal event, do not invoke agent
+- [ ] **Output Guardrail** (runs after agent responds, before SSE stream):
+  - Call `openai.moderations.create()` on the full response
+  - If flagged → replace with a safe fallback message
+  - Run regex scan for PII patterns on both the user's input and the agent's output (email: `[\w.]+@[\w.]+`, phone: `\d{3}[-.\s]\d{3}[-.\s]\d{4}`, SSN: `\d{3}-\d{2}-\d{4}`)
+  - **Delta check**: subtract PII found in the user's input from PII found in the output — only the remainder is hallucinated/leaked
+  - If hallucinated PII found → redact those matches before sending to frontend; user-provided PII is left intact
+- [ ] PostgreSQL schema: `guardrail_logs (id, direction TEXT, layer TEXT, flagged_content TEXT, reason TEXT, created_at)`
+- [ ] Log all flagged events with the layer that caught them
 
 ### Test Criteria
-- Known prompt injection (`"Ignore all previous instructions..."`) → canned refusal, agent not called
-- Clean message → passes through, no latency difference > 200ms
-- Guardrail log shows the flagged input with reason
-- Output guardrail catches a synthetic harmful response in a unit test
+- Known harmful content (`"how to make a weapon"`) → blocked by Moderation API; agent not called
+- Known prompt injection (`"Ignore all previous instructions..."`) → escalated to LLM classifier; blocked
+- Clean message → passes through; no added latency > 200ms (Moderation API is fast)
+- Output with an email address → email is redacted before reaching the UI
+- Guardrail log records the layer (`moderation`, `llm_classifier`, `regex`) that triggered the block
 
 ---
 

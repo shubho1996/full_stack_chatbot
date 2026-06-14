@@ -100,10 +100,23 @@ All LLM calls and agent steps are traced via **Arize Phoenix**.
 
 ## Guardrails
 
-A safety layer is applied at two checkpoints:
+A hybrid safety layer is applied at two checkpoints using three complementary techniques:
 
-1. **Input Guardrail** — Runs after the user submits a query. Blocks prompt injection attempts, jailbreaks, and policy-violating inputs before they reach the agent.
-2. **Output Guardrail** — Runs before the response is shown to the user. Filters harmful, toxic, or policy-violating content from the agent's output.
+| Technique | What it catches | When it runs |
+|---|---|---|
+| **OpenAI Moderation API** | Hate, harassment, self-harm, sexual content, violence | Input + Output |
+| **LLM Classifier** (`gpt-5.4-nano`) | Prompt injection, jailbreak attempts, policy violations | Input only (if moderation passes but content looks suspicious) |
+| **Regex validators** | PII leakage (email, phone numbers, SSNs) | Output only |
+
+### Flow
+1. **Input Guardrail** — Runs after the user submits, before the agent:
+   - OpenAI Moderation API first (fast, free). If flagged → immediate refusal.
+   - If moderation passes but the message contains suspicious patterns (e.g. `"ignore previous instructions"`), escalate to the LLM classifier.
+   - If either flags → canned refusal emitted via SSE; agent is never invoked.
+
+2. **Output Guardrail** — Runs after the agent responds, before the SSE stream reaches the user:
+   - OpenAI Moderation API on the full response. If flagged → replace with safe fallback.
+   - Regex scan for PII on both the user's input and the agent's output. **Delta check**: only PII that appears in the output but was absent from the input is considered hallucinated/leaked and gets redacted. PII the user explicitly provided is preserved.
 
 ---
 
@@ -147,12 +160,11 @@ A safety layer is applied at two checkpoints:
 
 ---
 
-## Multi-Modal Inputs
+## Image Input
 
-- Users can upload **images** alongside text queries; the agent uses vision capabilities of `gpt-5.4-nano` to reason over image content.
-- **Audio** inputs are transcribed to text via OpenAI Whisper before being passed to the agent.
-- Multi-modal messages are stored as part of the thread history in PostgreSQL with references to the original media (stored in object storage or local volume).
-- RAG and guardrails apply equally to content extracted from images and audio transcripts.
+- Users can upload **images** alongside text queries; the agent uses the vision capabilities of `gpt-5.4-nano` to reason over image content.
+- Images are stored as part of the thread history in PostgreSQL with a reference to the file (stored in object storage or local volume).
+- RAG and guardrails apply equally to content extracted from images.
 
 ---
 

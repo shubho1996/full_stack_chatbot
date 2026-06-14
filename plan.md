@@ -290,23 +290,46 @@ Each stage is independently testable. Complete and verify a stage before moving 
 
 **Goal:** Block harmful inputs before they reach the agent; filter harmful outputs before they reach the user.
 
+### Approach: Hybrid (3-layer)
+
+| Layer | Tool | Catches | Applied To |
+|---|---|---|---|
+| 1 | OpenAI Moderation API | Hate, harassment, self-harm, sexual content, violence | Input + Output |
+| 2 | `gpt-5.4-nano` LLM classifier | Prompt injection, jailbreaks | Input only (escalated from layer 1) |
+| 3 | Regex validators | PII leakage (email, phone, SSN) | Output only |
+
 ### Tasks
 - [ ] **Input Guardrail** (runs after user submits, before agent):
-  - Detect: prompt injection, jailbreak attempts, policy violations
-  - Classifier: `gpt-5.4-nano` with a classification system prompt
-  - If flagged: emit SSE refusal event, do not invoke agent
-  - Log flagged input to `guardrail_logs`
+  - Call `openai.moderations.create()` on the user message
+  - If flagged → emit SSE refusal event, do not invoke agent, log to `guardrail_logs`
+  - If moderation passes but message matches injection patterns (e.g. `"ignore previous instructions"`, `"disregard your"`, `"you are now"`) → escalate to `gpt-5.4-nano` classifier
+  - If classifier flags it → emit SSE refusal event, do not invoke agent, log to `guardrail_logs`
 - [ ] **Output Guardrail** (runs after agent responds, before final SSE stream):
-  - Detect: harmful content, toxic language, PII leakage
-  - If flagged: replace response with a safe fallback message
-  - Log flagged output to `guardrail_logs`
-- [ ] PostgreSQL schema: `guardrail_logs (id, user_id, thread_id, direction, flagged_content, reason, created_at)`
+  - Call `openai.moderations.create()` on the full response
+  - If flagged → replace with a safe fallback message, log to `guardrail_logs`
+  - Run regex scan for PII patterns on both the user's input and the agent's output (email, phone, SSN)
+  - **Delta check**: subtract PII found in the user's input from PII found in the output — only the remainder is hallucinated/leaked
+  - If hallucinated PII found → redact those matches before sending to frontend, log to `guardrail_logs`; user-provided PII is left intact
+- [ ] PostgreSQL schema:
+  ```sql
+  guardrail_logs (
+    id            UUID PRIMARY KEY,
+    user_id       UUID REFERENCES users(id),
+    thread_id     UUID REFERENCES threads(id),
+    direction     TEXT,   -- 'input' or 'output'
+    layer         TEXT,   -- 'moderation', 'llm_classifier', 'regex'
+    flagged_content TEXT,
+    reason        TEXT,
+    created_at    TIMESTAMP
+  )
+  ```
 
 ### Test Criteria
-- Known prompt injection (`"Ignore all previous instructions..."`) → canned refusal; agent not invoked
-- Harmful output is replaced before reaching the UI
-- Clean inputs and outputs pass through with no latency regression > 200ms
-- Flagged events appear in `guardrail_logs` with correct `user_id` and `direction`
+- Known harmful content (`"how to make a weapon"`) → blocked by Moderation API; agent not called
+- Known prompt injection (`"Ignore all previous instructions..."`) → escalated to LLM classifier; blocked
+- Clean message → passes through; no added latency > 200ms
+- Output containing an email address → email is redacted before reaching the UI
+- Guardrail log records correct `user_id`, `direction`, and `layer` for every flagged event
 
 ---
 
@@ -342,31 +365,21 @@ Each stage is independently testable. Complete and verify a stage before moving 
 
 ---
 
-## Stage 13 — Multi-Modal Inputs (Image & Audio)
+## Stage 13 — Image Input
 
-**Goal:** Users can send images and audio; the agent reasons over them.
+**Goal:** Users can attach images to messages; the agent reasons over them using vision.
 
 ### Tasks
-
-#### 13a — Image Input
 - [ ] Frontend: image attach button in chat input, thumbnail preview before send
 - [ ] Backend: `POST /threads/:id/chat` accepts `multipart/form-data` with optional image
 - [ ] Image saved to local volume (or object storage); path stored in `messages.media_refs`
 - [ ] Image passed to `gpt-5.4-nano` vision endpoint as base64 alongside the text prompt
 - [ ] Guardrails applied to image content description extracted by the model
 
-#### 13b — Audio Input
-- [ ] Frontend: record-audio button (browser MediaRecorder API) or file upload (MP3/WAV/M4A)
-- [ ] Backend: audio uploaded, sent to **OpenAI Whisper** (`whisper-1`) for transcription
-- [ ] Transcript used as the user message text; audio path stored in `messages.media_refs`
-- [ ] Frontend: display `"🎤 Transcribed: <transcript>"` label above the message
-- [ ] Guardrails applied to the transcript text
-
 ### Test Criteria
 - Upload an image with a question about it; agent answers correctly using visual content
-- Record or upload audio; transcript appears in UI and agent responds to it
-- Multi-modal messages persist in thread history and are visible on resume
-- Guardrails intercept harmful image descriptions and audio transcripts
+- Image messages persist in thread history and are visible on resume
+- Guardrails intercept a harmful image description before it reaches the user
 
 ---
 
