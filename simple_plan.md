@@ -2,6 +2,8 @@
 
 **Scope:** Build and validate the full feature set for a single user on a single backend instance. No auth, no load balancer, no multi-user isolation yet. Once everything works here, we layer on multi-user and scaling from `plan.md`.
 
+> **Tracking rule:** After each stage is completed, update this file — check off all tasks and test criteria, add any implementation notes, and update `README.md` with the new functionality and instructions.
+
 ---
 
 ## Stage 1 — Project Scaffolding & Local Dev Setup

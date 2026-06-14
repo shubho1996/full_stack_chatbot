@@ -7,11 +7,11 @@ A production-grade agentic chatbot built on the ReAct (Reasoning + Acting) frame
 | Layer | Technology |
 |---|---|
 | Agent Framework | LangChain + LangGraph (ReAct) |
-| LLM | `gpt-4o-mini` (OpenAI) |
+| LLM | `gpt-5.4-nano` (OpenAI) |
 | Embeddings | `all-MiniLM-L6-v2` (SentenceTransformers, local) |
 | Frontend | React + Vite |
 | Backend | FastAPI (Python) |
-| Database | PostgreSQL |
+| Database | PostgreSQL 16 |
 | Vector Store | ChromaDB (local) |
 | Observability | Arize Phoenix |
 | Containerization | Docker |
@@ -21,21 +21,29 @@ A production-grade agentic chatbot built on the ReAct (Reasoning + Acting) frame
 ```
 full_stack_chatbot/
 ├── backend/
-│   ├── main.py              # FastAPI app
-│   └── requirements.txt
+│   ├── main.py              # FastAPI app entry point
+│   ├── database.py          # SQLAlchemy engine + session + Base
+│   ├── models.py            # ORM models (Thread, Message)
+│   ├── schemas.py           # Pydantic request/response schemas
+│   ├── requirements.txt
+│   └── routers/
+│       └── threads.py       # Thread & message CRUD endpoints
 ├── frontend/
 │   ├── index.html
 │   ├── package.json
-│   ├── vite.config.js
+│   ├── vite.config.js       # Dev proxy → backend
 │   └── src/
 │       ├── main.jsx
-│       └── App.jsx
+│       ├── index.css
+│       └── App.jsx          # Chat UI (sidebar + message panel)
 ├── mcp_servers/
 │   └── calculator/
 │       └── server.py        # Custom MCP server (Stage 6)
 ├── docker-compose.yml       # PostgreSQL service
 ├── .env                     # Secrets (never commit)
 ├── .env.example             # Template for .env
+├── simple_plan.md           # Active build plan (single-user path)
+├── plan.md                  # Full multi-user plan (future)
 └── README.md
 ```
 
@@ -60,17 +68,13 @@ cp .env.example .env
 
 ---
 
-## Stage 1 — Running Locally
+## Running Locally
 
 ### Prerequisites
 
-1. **Node.js** — needed for the frontend
-   ```bash
-   brew install node
-   # or download from https://nodejs.org
-   ```
-
-2. **Docker Desktop** — needed for PostgreSQL
+1. **Python 3.11+**
+2. **Node.js 18+**
+3. **Docker Desktop** — for PostgreSQL
    - Download from https://www.docker.com/products/docker-desktop
 
 ### Start the App
@@ -94,24 +98,79 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) — you should see **Backend status: ok**.
+Open [http://localhost:5173](http://localhost:5173)
+
+---
+
+## What's Built (Current State)
+
+### Stage 1 — Scaffolding ✅
+- FastAPI backend with `GET /health → { status: "ok" }`
+- React + Vite frontend calling `/health` on load
+- PostgreSQL running via Docker Compose with a persistent named volume
+- `.env` wired for `DATABASE_URL` and `OPENAI_API_KEY`
+
+### Stage 2 — Chat Thread Management ✅
+- **PostgreSQL schema** — `threads` and `messages` tables, created automatically on backend startup
+- **`POST /threads`** — creates a new thread; auto-titles it from the first message sent
+- **`GET /threads`** — lists all threads, most recently active first
+- **`GET /threads/:id/messages`** — returns full message history for a thread
+- **`POST /threads/:id/messages`** — saves the user message and an echo reply, updates `updated_at` on the thread
+- **Frontend chat UI**:
+  - Dark-themed sidebar with all threads + "New Chat" button
+  - Chat panel with message bubbles (user right, assistant left)
+  - Optimistic UI — message appears instantly before the server responds
+  - Typing indicator while waiting for reply
+  - Enter to send, Shift+Enter for newline
+  - Clicking any thread in the sidebar resumes it with full history
+
+---
+
+## API Reference
+
+### Threads
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `POST` | `/threads` | Create a new thread |
+| `GET` | `/threads` | List all threads (newest first) |
+| `GET` | `/threads/:id/messages` | Get full message history |
+| `POST` | `/threads/:id/messages` | Send a message, get a reply |
+
+### Request / Response Examples
+
+**Create thread**
+```bash
+curl -X POST http://localhost:8000/threads \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "New Chat"}'
+```
+
+**Send message**
+```bash
+curl -X POST http://localhost:8000/threads/<thread_id>/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "Hello!"}'
+# Returns: { user_message: {...}, assistant_message: {...} }
+```
 
 ---
 
 ## Build Stages
 
-| Stage | Feature |
-|---|---|
-| 1 | Project scaffolding & local dev setup |
-| 2 | Chat thread management (PostgreSQL) |
-| 3 | LLM integration & real-time streaming |
-| 4 | ReAct agent with LangGraph |
-| 5 | Built-in tools (File System + Google Search) |
-| 6 | Custom MCP server (Calculator) |
-| 7 | Dynamic MCP server registration |
-| 8 | Document ingestion & RAG |
-| 9 | Memory (short-term & long-term) |
-| 10 | Image input |
-| 11 | Guardrails (moderation + PII filtering) |
-| 12 | Observability with Arize Phoenix |
-| 13 | Docker (full single-instance deployment) |
+| Stage | Feature | Status |
+|---|---|---|
+| 1 | Project scaffolding & local dev setup | ✅ Done |
+| 2 | Chat thread management (PostgreSQL + UI) | ✅ Done |
+| 3 | LLM integration & real-time SSE streaming | 🔜 Next |
+| 4 | ReAct agent with LangGraph | — |
+| 5 | Built-in tools (File System + Google Search) | — |
+| 6 | Custom MCP server (Calculator) | — |
+| 7 | Dynamic MCP server registration | — |
+| 8 | Document ingestion & RAG | — |
+| 9 | Memory (short-term & long-term) | — |
+| 10 | Image input | — |
+| 11 | Guardrails (moderation + PII filtering) | — |
+| 12 | Observability with Arize Phoenix | — |
+| 13 | Docker (full single-instance deployment) | — |
