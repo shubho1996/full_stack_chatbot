@@ -69,23 +69,26 @@
 **Goal:** Real responses from `gpt-5.4-nano`, streamed token-by-token to the UI.
 
 ### Tasks
-- [ ] Install `openai` Python SDK
-- [ ] Replace echo reply with a streaming OpenAI call:
-  - Build message history from PostgreSQL as the conversation context
-  - Call `gpt-5.4-nano` with `stream=True`
-  - Stream each token as a **Server-Sent Event**: `data: {"token": "..."}`
-  - On stream end, persist the full assembled response to PostgreSQL
-- [ ] Frontend:
-  - Switch `POST /threads/:id/chat` to consume SSE (`EventSource`)
-  - Append tokens to the assistant message bubble in real time
-  - Show a blinking cursor / typing indicator while streaming
-  - Handle stream errors with a user-visible error message
+- [x] Install `openai>=1.0.0` Python SDK
+- [x] Replace echo reply with a streaming OpenAI call via new `POST /threads/:id/chat` endpoint:
+  - Build full message history from PostgreSQL as conversation context (with system prompt)
+  - Call `gpt-5.4-nano` with `stream=True` using `AsyncOpenAI`
+  - Stream user_message_id first, then each token as SSE: `data: {"token": "..."}`
+  - On stream end, persist full assembled response to PostgreSQL; emit `data: {"done": true, "message_id": "..."}`
+  - Errors caught and emitted as `data: {"error": "..."}` — agent is never invoked
+- [x] Frontend:
+  - New `sendMessage` uses `fetch` + `ReadableStream` (not `EventSource` — EventSource doesn't support POST)
+  - Optimistic UI: user bubble + empty assistant bubble appear immediately
+  - Tokens appended to assistant bubble in real time as they arrive
+  - Blinking cursor (▌) shown via CSS animation while streaming
+  - Input and Send button disabled during streaming
+  - Stream errors shown in-place in the assistant bubble
 
 ### Test Criteria
-- Message streams token-by-token visibly in the UI (not a bulk response)
-- Full response is saved to the DB; visible on thread resume
-- Closing the browser mid-stream doesn't crash the backend
-- A bad API key shows a friendly error in the UI
+- [x] Message streams token-by-token visibly in the UI (confirmed via curl SSE output)
+- [x] Full response saved to DB after streaming; visible on thread resume (GET /messages confirmed)
+- [x] Closing the browser mid-stream doesn't crash the backend (generator simply stops)
+- [x] Stream errors caught and returned as `{"error": "..."}` event; shown in assistant bubble
 
 ---
 

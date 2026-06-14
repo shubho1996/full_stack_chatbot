@@ -8,3 +8,14 @@ body, html, #root {
   height: 100%;
   width: 100%;
 }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.cursor {
+  display: inline-block;
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+}

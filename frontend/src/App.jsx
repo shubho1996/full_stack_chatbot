@@ -125,6 +125,7 @@ function ThreadItem({ thread, active, onClick }) {
 
 function MessageBubble({ message }) {
   const isUser = message.role === 'user'
+  const isEmpty = message.streaming && message.content === ''
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
       <div
@@ -138,12 +139,30 @@ function MessageBubble({ message }) {
           lineHeight: '1.6',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
+          minWidth: isEmpty ? '40px' : undefined,
+          minHeight: isEmpty ? '20px' : undefined,
         }}
       >
         {message.content}
+        {message.streaming && <span className="cursor">▌</span>}
       </div>
     </div>
   )
+}
+
+function parseSSEChunk(buffer) {
+  const events = []
+  const parts = buffer.split('\n\n')
+  const remaining = parts.pop() // incomplete trailing chunk
+  for (const part of parts) {
+    if (!part.startsWith('data: ')) continue
+    try {
+      events.push(JSON.parse(part.slice(6)))
+    } catch {
+      // skip malformed event
+    }
+  }
+  return { events, remaining }
 }
 
 export default function App() {
@@ -151,7 +170,7 @@ export default function App() {
   const [activeThread, setActiveThread] = useState(null)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
+  const [streaming, setStreaming] = useState(false)
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
@@ -163,7 +182,7 @@ export default function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, sending])
+  }, [messages])
 
   async function createThread() {
     const res = await fetch('/threads', {
@@ -180,50 +199,107 @@ export default function App() {
   async function loadThread(thread) {
     setActiveThread(thread)
     const res = await fetch(`/threads/${thread.id}/messages`)
-    const data = await res.json()
-    setMessages(data)
+    setMessages(await res.json())
   }
 
   async function sendMessage() {
-    if (!input.trim() || !activeThread || sending) return
+    if (!input.trim() || !activeThread || streaming) return
     const content = input.trim()
     setInput('')
-    setSending(true)
+    setStreaming(true)
 
-    const tempId = `temp-${Date.now()}`
+    const isFirstMessage = messages.length === 0
+    const tempUserId = `temp-user-${Date.now()}`
+    const streamingId = `streaming-${Date.now()}`
+
+    // Optimistic: user bubble + empty streaming assistant bubble
     setMessages((prev) => [
       ...prev,
-      { id: tempId, role: 'user', content, created_at: new Date().toISOString() },
+      { id: tempUserId, role: 'user', content, created_at: new Date().toISOString() },
+      { id: streamingId, role: 'assistant', content: '', streaming: true },
     ])
 
     try {
-      const res = await fetch(`/threads/${activeThread.id}/messages`, {
+      const response = await fetch(`/threads/${activeThread.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       })
-      const { user_message, assistant_message } = await res.json()
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== tempId),
-        user_message,
-        assistant_message,
-      ])
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === activeThread.id
-            ? { ...t, title: user_message.content.slice(0, 50), updated_at: user_message.created_at }
-            : t
+
+      if (!response.ok) {
+        throw new Error(`Server error ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let assistantContent = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const { events, remaining } = parseSSEChunk(buffer)
+        buffer = remaining
+
+        for (const data of events) {
+          if (data.user_message_id) {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === tempUserId ? { ...m, id: data.user_message_id } : m))
+            )
+          } else if (data.token) {
+            assistantContent += data.token
+            const snap = assistantContent
+            setMessages((prev) =>
+              prev.map((m) => (m.id === streamingId ? { ...m, content: snap } : m))
+            )
+          } else if (data.done) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamingId ? { ...m, id: data.message_id, streaming: false } : m
+              )
+            )
+            // Update sidebar title + ordering
+            const newTitle = isFirstMessage ? content.slice(0, 50) : null
+            setThreads((prev) => {
+              const updated = prev.map((t) =>
+                t.id === activeThread.id
+                  ? { ...t, ...(newTitle ? { title: newTitle } : {}) }
+                  : t
+              )
+              // Bubble to top
+              const idx = updated.findIndex((t) => t.id === activeThread.id)
+              if (idx > 0) {
+                const [moved] = updated.splice(idx, 1)
+                return [moved, ...updated]
+              }
+              return updated
+            })
+            if (newTitle) {
+              setActiveThread((t) => ({ ...t, title: newTitle }))
+            }
+          } else if (data.error) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamingId
+                  ? { ...m, content: `Error: ${data.error}`, streaming: false }
+                  : m
+              )
+            )
+          }
+        }
+      }
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamingId
+            ? { ...m, content: 'Something went wrong. Please try again.', streaming: false }
+            : m
         )
       )
-      setActiveThread((t) => ({ ...t, title: user_message.content.slice(0, 50) }))
-    } catch (err) {
-      console.error(err)
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== tempId),
-        { id: 'err', role: 'assistant', content: 'Something went wrong. Please try again.' },
-      ])
     } finally {
-      setSending(false)
+      setStreaming(false)
     }
   }
 
@@ -264,21 +340,6 @@ export default function App() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
               ))}
-              {sending && (
-                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                  <div
-                    style={{
-                      padding: '10px 16px',
-                      borderRadius: '16px 16px 16px 4px',
-                      background: '#313244',
-                      color: '#6c7086',
-                      fontSize: '14px',
-                    }}
-                  >
-                    ...
-                  </div>
-                </div>
-              )}
               <div ref={messagesEndRef} />
             </div>
             <div style={styles.inputRow}>
@@ -289,15 +350,16 @@ export default function App() {
                 onKeyDown={handleKeyDown}
                 placeholder="Message… (Enter to send, Shift+Enter for newline)"
                 rows={2}
+                disabled={streaming}
               />
               <button
                 style={{
                   ...styles.sendBtn,
-                  opacity: !input.trim() || sending ? 0.45 : 1,
-                  cursor: !input.trim() || sending ? 'not-allowed' : 'pointer',
+                  opacity: !input.trim() || streaming ? 0.45 : 1,
+                  cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
                 }}
                 onClick={sendMessage}
-                disabled={!input.trim() || sending}
+                disabled={!input.trim() || streaming}
               >
                 Send
               </button>

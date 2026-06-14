@@ -100,6 +100,24 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173)
 
+### Troubleshooting
+
+**`[Errno 48] Address already in use` — port 8000 (backend)**
+
+Another process is already holding port 8000. Kill it and restart uvicorn:
+```bash
+lsof -ti :8000 | xargs kill -9 2>/dev/null && echo "Port 8000 freed" || echo "Nothing on port 8000"
+```
+
+**`EADDRINUSE` — port 5173 (frontend)**
+
+Same issue for the Vite dev server:
+```bash
+lsof -ti :5173 | xargs kill -9 2>/dev/null && echo "Port 5173 freed" || echo "Nothing on port 5173"
+```
+
+After freeing the port, re-run the relevant `uvicorn` or `npm run dev` command.
+
 ---
 
 ## What's Built (Current State)
@@ -109,6 +127,20 @@ Open [http://localhost:5173](http://localhost:5173)
 - React + Vite frontend calling `/health` on load
 - PostgreSQL running via Docker Compose with a persistent named volume
 - `.env` wired for `DATABASE_URL` and `OPENAI_API_KEY`
+
+### Stage 3 — LLM Integration & Real-Time Streaming ✅
+- **`POST /threads/:id/chat`** — new streaming endpoint using Server-Sent Events (SSE)
+  - Loads full thread history from PostgreSQL as conversation context
+  - Calls `gpt-5.4-nano` with `stream=True` via the OpenAI async client
+  - Emits `{"user_message_id"}` first, then `{"token": "..."}` for each token, then `{"done": true, "message_id": "..."}` on completion
+  - Errors emitted as `{"error": "..."}` — no crash, no unhandled exception
+  - Both user and assistant messages persisted to PostgreSQL after streaming ends
+- **Frontend streaming UI**:
+  - Uses `fetch` + `ReadableStream` (EventSource doesn't support POST)
+  - Assistant bubble appears immediately and fills in token-by-token
+  - Blinking cursor `▌` shown via CSS animation while streaming
+  - Input and Send button locked during streaming
+  - Full conversation context sent to the LLM on every turn
 
 ### Stage 2 — Chat Thread Management ✅
 - **PostgreSQL schema** — `threads` and `messages` tables, created automatically on backend startup
@@ -136,7 +168,8 @@ Open [http://localhost:5173](http://localhost:5173)
 | `POST` | `/threads` | Create a new thread |
 | `GET` | `/threads` | List all threads (newest first) |
 | `GET` | `/threads/:id/messages` | Get full message history |
-| `POST` | `/threads/:id/messages` | Send a message, get a reply |
+| `POST` | `/threads/:id/messages` | Send a message, get an echo reply (Stage 2 only) |
+| `POST` | `/threads/:id/chat` | Send a message, stream LLM response via SSE |
 
 ### Request / Response Examples
 
@@ -163,8 +196,8 @@ curl -X POST http://localhost:8000/threads/<thread_id>/messages \
 |---|---|---|
 | 1 | Project scaffolding & local dev setup | ✅ Done |
 | 2 | Chat thread management (PostgreSQL + UI) | ✅ Done |
-| 3 | LLM integration & real-time SSE streaming | 🔜 Next |
-| 4 | ReAct agent with LangGraph | — |
+| 3 | LLM integration & real-time SSE streaming | ✅ Done |
+| 4 | ReAct agent with LangGraph | 🔜 Next |
 | 5 | Built-in tools (File System + Google Search) | — |
 | 6 | Custom MCP server (Calculator) | — |
 | 7 | Dynamic MCP server registration | — |
